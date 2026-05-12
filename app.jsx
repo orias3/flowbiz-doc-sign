@@ -46,11 +46,46 @@ const DEFAULT_DOCS = [
 function statusOf(doc) {
   if (doc.status === "completed") return "completed";
   const them = doc.fields.filter((f) => f.assignee === "them");
-  if (doc.shareToken) {
+  if (doc.shareId || doc.shareToken) {
     if (them.length && them.every((f) => f.value)) return "completed";
     return "sent";
   }
   return "draft";
+}
+
+// API client for the share backend
+async function apiCreateShare(doc) {
+  const r = await fetch("/api/share", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(doc),
+  });
+  if (!r.ok) throw new Error("create_failed");
+  return r.json();
+}
+async function apiGetShare(id) {
+  const r = await fetch(`/api/share?id=${encodeURIComponent(id)}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("get_failed");
+  return r.json();
+}
+async function apiUpdateShare(id, doc) {
+  const r = await fetch(`/api/share?id=${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(doc),
+  });
+  if (!r.ok) throw new Error("update_failed");
+  return r.json();
+}
+
+function sanitizeForCounterparty(doc) {
+  // Drop "them" field values so the client always starts with empty markers.
+  return {
+    ...doc,
+    fields: (doc.fields || []).map((f) => f.assignee === "them" ? { ...f, value: null } : f),
+    sender: doc.sender || "איי או טי סטארטפס בע״מ",
+    status: doc.status === "completed" ? "draft" : doc.status,
+  };
 }
 
 const Library = ({ docs, onOpen, onUpload, onNew, onDelete }) => {
@@ -186,29 +221,31 @@ const Library = ({ docs, onOpen, onUpload, onNew, onDelete }) => {
 
 };
 
-function buildSignUrl(doc) {
-  const payload = {
-    id: doc.id, name: doc.name, template: doc.template,
-    counterparty: doc.counterparty,
-    uploadedPages: doc.uploadedPages || null,
-    uploadedFileName: doc.uploadedFileName || null,
-    fields: doc.fields || [],
-    sender: "איי או טי סטארטפס בע״מ",
-  };
-  const json = JSON.stringify(payload);
-  const compressed = (window.LZString && window.LZString.compressToEncodedURIComponent)
-    ? window.LZString.compressToEncodedURIComponent(json)
-    : encodeURIComponent(btoa(unescape(encodeURIComponent(json))));
-  return `${location.origin}${location.pathname}#sign=${compressed}`;
+function buildShortUrl(shareId) {
+  return `${location.origin}/s/${shareId}`;
 }
 
-const ShareModal = ({ open, onClose, doc, onMarkSent }) => {
+const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady }) => {
   const [copied, setCopied] = useStateA(false);
+  const [busy, setBusy] = useStateA(false);
+  const [err, setErr] = useStateA("");
+  const [shareId, setShareId] = useStateA(doc && doc.shareId ? doc.shareId : null);
+
+  useEffectA(() => {
+    if (!open || !doc) return;
+    if (doc.shareId) { setShareId(doc.shareId); return; }
+    setBusy(true); setErr("");
+    apiCreateShare(sanitizeForCounterparty(doc))
+      .then(({ id }) => { setShareId(id); onShareReady && onShareReady(id); })
+      .catch((e) => setErr("נכשלה יצירת קישור — נסה שוב"))
+      .finally(() => setBusy(false));
+  }, [open, doc && doc.id]);
+
   if (!doc) return null;
-  const url = buildSignUrl(doc);
-  const tooLong = url.length > 7500;
+  const url = shareId ? buildShortUrl(shareId) : "טוען...";
 
   const copy = () => {
+    if (!shareId) return;
     navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
@@ -242,12 +279,18 @@ const ShareModal = ({ open, onClose, doc, onMarkSent }) => {
         </button>
       </div>
 
-      <div style={{ marginTop: 22, background: tooLong ? "var(--orange-50)" : "var(--blue-50)", border: "1px solid " + (tooLong ? "var(--orange-100)" : "var(--blue-100)"), borderRadius: 14, padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
-        <Icon name={tooLong ? "info" : "shield-check"} size={18} color={tooLong ? "var(--orange-600)" : "var(--blue-600)"} />
-        <div style={{ fontSize: 12.5, color: tooLong ? "var(--orange-600)" : "var(--blue-800)", lineHeight: 1.55 }}>
-          {tooLong
-            ? "המסמך גדול — ייתכן שהקישור יהיה ארוך מדי לחלק מהמערכות (WhatsApp/SMS). מומלץ לשלוח באימייל או להעתיק ידנית."
-            : "המסמך נטמע ישירות בקישור — הצד השני יראה אך ורק את החלון לחתימה, ללא גישה לממשק שלך. אחרי שיחתום, תקבל את העותק החתום חזרה."}
+      {err && (
+        <div style={{ marginTop: 12, background: "var(--red-50)", border: "1px solid #FCA5A5", borderRadius: 14, padding: "12px 14px", display: "flex", gap: 10, alignItems: "center" }}>
+          <Icon name="info" size={18} color="var(--red-600)" />
+          <div style={{ fontSize: 12.5, color: "var(--red-600)" }}>{err}</div>
+        </div>
+      )}
+      <div style={{ marginTop: 22, background: "var(--blue-50)", border: "1px solid var(--blue-100)", borderRadius: 14, padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+        <Icon name="shield-check" size={18} color="var(--blue-600)" />
+        <div style={{ fontSize: 12.5, color: "var(--blue-800)", lineHeight: 1.55 }}>
+          {busy
+            ? "מייצר קישור מקוצר ומאובטח..."
+            : "הקישור קצר ומקצועי. הצד השני רואה אך ורק את חלון החתימה, ללא גישה לממשק שלך. ברגע שיחתום, העותק החתום יחזור אוטומטית לספריית המסמכים שלך."}
         </div>
       </div>
 
@@ -270,19 +313,37 @@ const App = () => {
   const [sigAfter, setSigAfter] = useStateA(null);
   const [shareOpen, setShareOpen] = useStateA(false);
   const [toast, setToast] = useStateA("");
-  const [sharedDoc, setSharedDoc] = useStateA(null); // doc decoded from URL (cross-device)
+  const [sharedDoc, setSharedDoc] = useStateA(null);   // doc fetched from API (client view)
+  const [sharedId, setSharedId] = useStateA(null);     // share id of the doc currently open in client view
   const [shareError, setShareError] = useStateA(false);
+  const [shareLoading, setShareLoading] = useStateA(false);
 
   useEffectA(() => {saveDocs(docs);}, [docs]);
   useEffectA(() => {if (mySignature) saveSig(mySignature);}, [mySignature]);
 
-  // URL routing for share links — hard-locked: never falls back to library while a share hash is present
+  // URL routing — /s/<id> path is hard-locked to the client signing view.
   useEffectA(() => {
-    const check = () => {
-      const signMatch = location.hash.match(/^#sign=(.+)$/);
-      if (signMatch) {
+    const check = async () => {
+      const pathMatch = location.pathname.match(/^\/s\/([a-z0-9]+)$/i);
+      const hashSignMatch = location.hash.match(/^#sign=(.+)$/);
+      const hashTokenMatch = location.hash.match(/^#share=([a-z0-9]+)$/i);
+
+      if (pathMatch) {
+        const id = pathMatch[1];
+        setSharedId(id); setShareError(false); setShareLoading(true); setView("counterparty"); setActiveDocId(null);
         try {
-          const raw = signMatch[1];
+          const doc = await apiGetShare(id);
+          setSharedDoc(doc); setShareError(false);
+        } catch (e) {
+          setSharedDoc(null); setShareError(true);
+        } finally {
+          setShareLoading(false);
+        }
+        return;
+      }
+      if (hashSignMatch) {
+        try {
+          const raw = hashSignMatch[1];
           let json = null;
           if (window.LZString && window.LZString.decompressFromEncodedURIComponent) {
             json = window.LZString.decompressFromEncodedURIComponent(raw);
@@ -290,32 +351,63 @@ const App = () => {
           if (!json) { json = decodeURIComponent(escape(atob(decodeURIComponent(raw)))); }
           const decoded = JSON.parse(json);
           if (!decoded || !decoded.id) throw new Error("invalid payload");
-          setSharedDoc(decoded);
-          setShareError(false);
-          setActiveDocId(null);
-          setView("counterparty");
+          setSharedDoc(decoded); setSharedId(null); setShareError(false); setActiveDocId(null); setView("counterparty");
         } catch (e) {
-          console.error("share decode failed", e);
-          setSharedDoc(null);
-          setShareError(true);
-          setView("counterparty");
+          setSharedDoc(null); setSharedId(null); setShareError(true); setView("counterparty");
         }
         return;
       }
-      const tokenMatch = location.hash.match(/^#share=([a-z0-9]+)$/i);
-      if (tokenMatch) {
-        const d = docs.find((x) => x.shareToken === tokenMatch[1]);
-        if (d) { setSharedDoc(null); setActiveDocId(d.id); setShareError(false); setView("counterparty"); return; }
-        // Token unknown on this device → lock to error, never show library
-        setSharedDoc(null); setShareError(true); setView("counterparty");
+      if (hashTokenMatch) {
+        const d = docs.find((x) => x.shareToken === hashTokenMatch[1]);
+        if (d) { setSharedDoc(null); setSharedId(null); setActiveDocId(d.id); setShareError(false); setView("counterparty"); return; }
+        setSharedDoc(null); setSharedId(null); setShareError(true); setView("counterparty");
         return;
       }
-      if (view === "counterparty") { setView("library"); setActiveDocId(null); setSharedDoc(null); setShareError(false); }
+      if (view === "counterparty") {
+        setView("library"); setActiveDocId(null); setSharedDoc(null); setSharedId(null); setShareError(false);
+      }
     };
     check();
     window.addEventListener("hashchange", check);
-    return () => window.removeEventListener("hashchange", check);
+    window.addEventListener("popstate", check);
+    return () => {
+      window.removeEventListener("hashchange", check);
+      window.removeEventListener("popstate", check);
+    };
   }, [docs]);
+
+  // Poll for signed updates: when the sender re-opens the app or comes back to focus,
+  // refresh any shared docs from the server so signed versions appear in the library.
+  useEffectA(() => {
+    let cancelled = false;
+    const refreshShared = async () => {
+      const shared = docs.filter((d) => d.shareId);
+      if (!shared.length) return;
+      const updates = await Promise.all(shared.map(async (d) => {
+        try {
+          const remote = await apiGetShare(d.shareId);
+          if (remote && remote.status === "completed" && d.status !== "completed") {
+            return { ...d, ...remote, id: d.id, shareId: d.shareId };
+          }
+        } catch (_) {}
+        return null;
+      }));
+      if (cancelled) return;
+      const changed = updates.filter(Boolean);
+      if (changed.length) {
+        setDocs((prev) => prev.map((d) => {
+          const upd = changed.find((u) => u.id === d.id);
+          return upd || d;
+        }));
+        showToast(`התקבל מסמך חתום מהצד השני (${changed.length})`);
+      }
+    };
+    refreshShared();
+    const onFocus = () => refreshShared();
+    window.addEventListener("focus", onFocus);
+    const interval = setInterval(refreshShared, 30000);
+    return () => { cancelled = true; window.removeEventListener("focus", onFocus); clearInterval(interval); };
+  }, [docs.length]);
 
   const showToast = (msg) => {setToast(msg);setTimeout(() => setToast(""), 2200);};
 
@@ -412,11 +504,12 @@ const App = () => {
 
   const openShare = () => {
     if (!activeDoc) return;
-    if (!activeDoc.shareToken) {
-      const token = genId();
-      updateDoc({ ...activeDoc, shareToken: token });
-    }
     setShareOpen(true);
+  };
+
+  const onShareReady = (shareId) => {
+    if (!activeDoc) return;
+    updateDoc({ ...activeDoc, shareId, status: activeDoc.status === "draft" ? "sent" : activeDoc.status });
   };
 
   const downloadDoc = async (d) => {
@@ -453,15 +546,23 @@ const App = () => {
           if (f.type === "signature") {
             const im = await loadImg(f.value).catch(() => null);
             if (im) ctx.drawImage(im, f.x, f.y, f.w, f.h);
-          } else if (f.type === "stamp" && stampImg) {
-            ctx.drawImage(stampImg, f.x, f.y, f.w, f.h);
+          } else if (f.type === "stamp") {
+            // Custom uploaded stamp (data URL) takes priority over the default
+            if (typeof f.value === "string" && f.value.startsWith("data:")) {
+              const im = await loadImg(f.value).catch(() => null);
+              if (im) ctx.drawImage(im, f.x, f.y, f.w, f.h);
+            } else if (stampImg) {
+              ctx.drawImage(stampImg, f.x, f.y, f.w, f.h);
+            }
           } else if (f.type === "date" || f.type === "text") {
-            ctx.fillStyle = "#0E2A5C";
-            ctx.font = "bold 16px Heebo, sans-serif";
+            const isSystem = f.assignee === "system";
+            ctx.fillStyle = isSystem ? "#6B7687" : "#0E2A5C";
+            ctx.font = (isSystem ? "italic 11px" : "bold 16px") + " Heebo, sans-serif";
             ctx.textBaseline = "middle";
             ctx.direction = "rtl";
-            ctx.textAlign = "right";
-            ctx.fillText(f.value, f.x + f.w - 6, f.y + f.h / 2);
+            ctx.textAlign = isSystem ? "center" : "right";
+            const tx = isSystem ? f.x + f.w / 2 : f.x + f.w - 6;
+            ctx.fillText(f.value, tx, f.y + f.h / 2);
           }
         }
         if (pi > 0) pdf.addPage([PW, PH]);
@@ -475,10 +576,40 @@ const App = () => {
     }
   };
 
-  const onCounterpartyComplete = () => {
+  // Build the auto date/time footer field stamped on completion
+  const buildCompletionStampField = (doc, signerName) => {
+    const lastPage = doc.uploadedPages ? doc.uploadedPages.length - 1 : 0;
+    const ts = new Date();
+    const human = ts.toLocaleString("he-IL", { dateStyle: "long", timeStyle: "short" });
+    return {
+      id: "sysstamp-" + genId(),
+      type: "text",
+      page: lastPage,
+      x: 56, y: 1078, w: 682, h: 22,
+      assignee: "system",
+      value: `נחתם דיגיטלית ע״י ${signerName} · ${human} · FlowBiz Sign`,
+    };
+  };
+
+  const onCounterpartyComplete = async () => {
     if (!activeDoc) return;
-    updateDoc({ ...activeDoc, status: "completed", completedAt: Date.now() });
-    showToast("המסמך נחתם והוחזר. תודה!");
+    const signerName = DOC_TEMPLATES[activeDoc.template]?.counterparty || activeDoc.counterparty || "הצד השני";
+    const stampField = buildCompletionStampField(activeDoc, signerName);
+    const completed = {
+      ...activeDoc,
+      fields: [...activeDoc.fields, stampField],
+      status: "completed",
+      completedAt: Date.now(),
+      signedBy: signerName,
+    };
+    updateDoc(completed);
+    // Push the signed copy back so the sender sees it in their library on next refresh
+    if (sharedId) {
+      try { await apiUpdateShare(sharedId, completed); }
+      catch (e) { console.error("failed to push signed copy", e); showToast("נשמר מקומית — נכשלה השליחה לשרת"); }
+    }
+    showToast("המסמך נחתם — מורד אליך עותק חתום");
+    return completed;
   };
 
   return (
@@ -518,7 +649,17 @@ const App = () => {
         </>
       }
 
-      {view === "counterparty" && shareError &&
+      {view === "counterparty" && shareLoading &&
+        <div className="cv-error-screen">
+          <div className="cv-error-card">
+            <div className="cv-error-icon" style={{ background: "var(--blue-500)" }}><Icon name="file-text" size={32} color="#fff" /></div>
+            <h2>טוען את המסמך…</h2>
+            <p>רגע אחד, מקבל את המסמך מהשרת.</p>
+          </div>
+        </div>
+      }
+
+      {view === "counterparty" && !shareLoading && shareError &&
         <div className="cv-error-screen">
           <div className="cv-error-card">
             <div className="cv-error-icon"><Icon name="info" size={36} color="#fff" /></div>
@@ -528,18 +669,16 @@ const App = () => {
         </div>
       }
 
-      {view === "counterparty" && !shareError && activeDoc &&
+      {view === "counterparty" && !shareLoading && !shareError && activeDoc &&
       <>
           <ClientView
             doc={activeDoc}
             onUpdate={updateDoc}
             mySignature={mySignature}
             onNeedSignature={(after) => { setSigAfter(() => after); setSigOpen(true); }}
-            onComplete={() => {
-              const completed = { ...activeDoc, status: "completed", completedAt: Date.now() };
-              updateDoc(completed);
-              downloadDoc(completed);
-              showToast("המסמך נחתם — מורד אליך עותק חתום");
+            onComplete={async () => {
+              const completed = await onCounterpartyComplete();
+              if (completed) downloadDoc(completed);
             }}
             downloadDoc={downloadDoc}
           />
@@ -561,6 +700,7 @@ const App = () => {
         open={shareOpen}
         onClose={() => setShareOpen(false)}
         doc={activeDoc}
+        onShareReady={onShareReady}
         onMarkSent={() => showToast("הקישור מוכן — אפשר לשלוח לצד השני")} />
       
 

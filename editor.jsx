@@ -127,35 +127,46 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
 
   const renderField = (field) => {
     const filled = !!field.value;
-    const editable = viewMode === "owner" || (viewMode === "counterparty" && field.assignee === "them");
+    // Owner can only fill their OWN fields. Counterparty fields are markers reserved for the client.
+    const ownerCanFill = viewMode === "owner" && field.assignee === "me";
+    const counterpartyCanFill = viewMode === "counterparty" && field.assignee === "them";
+    const fillable = ownerCanFill || counterpartyCanFill;
     const myTurn = viewMode === "counterparty" && field.assignee === "them" && !filled;
+    const isSystem = field.assignee === "system";
+    const stampSrc = field.type === "stamp" && typeof field.value === "string" && field.value.startsWith("data:")
+      ? field.value
+      : "assets/stamp.png";
     return (
       <div key={field.id}
         className={
           "field " + (filled ? "filled placeholder " : "placeholder ") +
           (field.assignee === "them" ? "counterparty " : "") +
+          (isSystem ? "system " : "") +
           (selectedField === field.id ? "selected " : "") +
           (myTurn ? "pulse" : "")
         }
         style={{ left: field.x, top: field.y, width: field.w, height: field.h }}
-        onMouseDown={(e) => editable && viewMode === "owner" && onFieldDragStart(e, field)}
+        onMouseDown={(e) => viewMode === "owner" && !isSystem && onFieldDragStart(e, field)}
         onClick={(e) => {
           e.stopPropagation();
+          if (isSystem) return;
           setSelectedField(field.id);
-          if (!filled && editable) fillField(field);
+          if (!filled && fillable) fillField(field);
         }}
       >
-        <div className="field-tag">
-          {field.assignee === "me" ? "אתה" : "הצד השני"} · {TOOLS.find(t=>t.id===field.type)?.name}
-        </div>
-        {viewMode === "owner" && (
+        {!isSystem && (
+          <div className="field-tag">
+            {field.assignee === "me" ? "אתה" : "הצד השני"} · {TOOLS.find(t=>t.id===field.type)?.name}
+          </div>
+        )}
+        {viewMode === "owner" && !isSystem && (
           <div className="field-tools">
             <button className="field-tool-btn" onClick={(e) => { e.stopPropagation(); deleteField(field.id); }} title="מחיקה">
               <Icon name="trash" size={13}/>
             </button>
           </div>
         )}
-        {!filled && (
+        {!filled && !isSystem && (
           <span className="field-label">
             <Icon name={TOOLS.find(t=>t.id===field.type)?.icon} size={13}/>
             {field.assignee === "me" ? "לחתימה שלך" : "ממתין לצד השני"}
@@ -165,15 +176,15 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
           <div className="field-signature"><img src={field.value} alt="signature"/></div>
         )}
         {filled && field.type === "stamp" && (
-          <div className="field-stamp"><img src="assets/stamp.png" alt="stamp"/></div>
+          <div className="field-stamp"><img src={stampSrc} alt="stamp"/></div>
         )}
         {filled && field.type === "date" && (
           <div className="field-text field-date">{field.value}</div>
         )}
         {filled && field.type === "text" && (
-          <div className="field-text">{field.value}</div>
+          <div className={"field-text " + (isSystem ? "field-system" : "")}>{field.value}</div>
         )}
-        {viewMode === "owner" && editable && (
+        {viewMode === "owner" && !isSystem && (
           <div className="field-resize" onMouseDown={(e) => onResizeStart(e, field)}/>
         )}
       </div>

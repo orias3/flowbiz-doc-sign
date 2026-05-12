@@ -1,19 +1,27 @@
 // Client signing view — restricted, read-only document with sign-only fields.
-// No editor sidebars, no tools, no upload, no share/download. The client can
-// only: view the document comfortably, fill the fields the sender assigned to
-// them, and send it back.
+// The client can only: view the document comfortably, fill the fields the
+// sender assigned to them (with their OWN signature and OWN uploaded stamp),
+// and send the signed copy back. No editor sidebars, no tools, no field
+// placement, no download/share of the sender's interface.
 
 const { useState: useStateC, useEffect: useEffectC, useRef: useRefC, useMemo: useMemoC } = React;
 
+const CLIENT_STAMP_KEY = "flowbiz-client-stamp-v1";
+
 const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, downloadDoc }) => {
   const template = window.DOC_TEMPLATES[doc.template];
-  const senderName = doc.sender || "איי או טי סטארטפס בע״מ";
+  const senderName = doc.sender || "השולח";
   const counterpartyName = template?.counterparty || doc.counterparty || "אורח/ת";
 
   const stageRef = useRefC(null);
+  const stampInputRef = useRefC(null);
   const [zoom, setZoom] = useStateC(1);
   const [showSummary, setShowSummary] = useStateC(false);
   const [showDone, setShowDone] = useStateC(false);
+  const [submitting, setSubmitting] = useStateC(false);
+  const [clientStamp, setClientStamp] = useStateC(() => {
+    try { return localStorage.getItem(CLIENT_STAMP_KEY); } catch { return null; }
+  });
 
   // Fit-to-width
   useEffectC(() => {
@@ -33,6 +41,7 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
   const filledCount = theirFields.filter((f) => f.value).length;
   const allDone = theirFields.length > 0 && filledCount === theirFields.length;
   const nothingToDo = theirFields.length === 0;
+  const isCompleted = doc.status === "completed";
 
   const updateField = (id, patch) => {
     onUpdate({
@@ -41,8 +50,25 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
     });
   };
 
-  const fillField = (field, sigOverride) => {
-    if (field.assignee !== "them") return;
+  const onStampFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      alert("גודל מקסימלי לחותמת: 2MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      setClientStamp(dataUrl);
+      try { localStorage.setItem(CLIENT_STAMP_KEY, dataUrl); } catch {}
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const fillField = (field, sigOverride, stampOverride) => {
+    if (field.assignee !== "them" || isCompleted) return;
     if (field.type === "signature") {
       const sig = sigOverride || mySignature;
       if (!sig) {
@@ -56,15 +82,19 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
       const v = prompt("הקלד/י את הטקסט:", field.value || "");
       if (v != null && v.trim()) updateField(field.id, { value: v });
     } else if (field.type === "stamp") {
-      // Counterparty stamps are rare; allow re-use of sender stamp if intended.
-      updateField(field.id, { value: "stamp" });
+      const stamp = stampOverride || clientStamp;
+      if (!stamp) {
+        if (stampInputRef.current) stampInputRef.current.click();
+        return;
+      }
+      updateField(field.id, { value: stamp });
     }
   };
 
   const scrollToNext = () => {
     const next = theirFields.find((f) => !f.value);
     if (!next) return;
-    const pageEl = stageRef.current?.querySelector(`[data-page-idx="${next.page}"]`);
+    const pageEl = stageRef.current && stageRef.current.querySelector(`[data-page-idx="${next.page}"]`);
     if (pageEl) {
       const fieldEl = pageEl.querySelector(`[data-field-id="${next.id}"]`);
       (fieldEl || pageEl).scrollIntoView({ behavior: "smooth", block: "center" });
@@ -75,8 +105,13 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
 
   const renderField = (field) => {
     const filled = !!field.value;
-    const mine = field.assignee === "them"; // for the client, "them" means the client themselves
-    const interactive = mine && !filled;
+    const isSystem = field.assignee === "system";
+    const mine = field.assignee === "them";
+    const interactive = mine && !filled && !isCompleted;
+    const stampSrc = field.type === "stamp" && typeof field.value === "string" && field.value.startsWith("data:")
+      ? field.value
+      : "assets/stamp.png";
+
     return (
       <div
         key={field.id}
@@ -85,6 +120,7 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
           "cv-field " +
           (filled ? "cv-field-filled " : "cv-field-empty ") +
           (mine ? "cv-field-mine " : "cv-field-locked ") +
+          (isSystem ? "cv-field-system " : "") +
           (interactive ? "cv-field-pulse" : "")
         }
         style={{ left: field.x, top: field.y, width: field.w, height: field.h }}
@@ -103,17 +139,31 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
           <div className="field-signature"><img src={field.value} alt="signature" /></div>
         )}
         {filled && field.type === "stamp" && (
-          <div className="field-stamp"><img src="assets/stamp.png" alt="stamp" /></div>
+          <div className="field-stamp"><img src={stampSrc} alt="stamp" /></div>
         )}
         {filled && (field.type === "date" || field.type === "text") && (
-          <div className={"field-text " + (field.type === "date" ? "field-date" : "")}>{field.value}</div>
+          <div className={"field-text " + (field.type === "date" ? "field-date " : "") + (isSystem ? "field-system" : "")}>{field.value}</div>
         )}
       </div>
     );
   };
 
+  const submitAndShowDone = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await onComplete();
+      setShowSummary(false);
+      setShowDone(true);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="client-view">
+      <input ref={stampInputRef} type="file" hidden accept="image/png,image/jpeg,image/svg+xml" onChange={onStampFile} />
+
       <div className="cv-topbar">
         <div className="brand">
           <img src="assets/logo.png" alt="FlowBiz" onError={(e) => (e.target.style.display = "none")} />
@@ -123,6 +173,11 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
           </div>
         </div>
         <div className="cv-top-right">
+          {isCompleted && (
+            <button className="btn btn-secondary btn-sm" onClick={() => downloadDoc && downloadDoc(doc)}>
+              <Icon name="download" size={14} /> הורד עותק חתום
+            </button>
+          )}
           <span className="pill pill-info" title="חיבור מוצפן"><Icon name="shield-check" size={12} /> מאובטח</span>
         </div>
       </div>
@@ -134,32 +189,83 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
               <Icon name="send" size={13} /> נשלח אליך מאת <strong>{senderName}</strong>
             </div>
             <h1>{doc.name}</h1>
-            <p>שלום {counterpartyName}, עברו על המסמך. סמני/סמנו את השדות המסומנים בכתום כדי להשלים את החתימה ולשלוח חזרה.</p>
-            {!nothingToDo && (
+            {!isCompleted ? (
+              <p>שלום {counterpartyName}, עברו על המסמך. סמני/סמנו את השדות בכתום כדי להשלים את החתימה ולשלוח חזרה.</p>
+            ) : (
+              <p style={{ color: "var(--green-700)" }}>
+                <Icon name="check-circle" size={14} /> המסמך נחתם והוחזר אל {senderName}. אפשר להוריד עותק לשמירה.
+              </p>
+            )}
+            {!nothingToDo && !isCompleted && (
               <div className="cv-progress">
                 <div className="bar"><div className="fill" style={{ width: `${(filledCount / theirFields.length) * 100}%` }} /></div>
                 <span>{filledCount} מתוך {theirFields.length} שדות הושלמו</span>
               </div>
             )}
           </div>
-          <div className="cv-hero-actions">
-            {!nothingToDo && filledCount < theirFields.length && (
-              <button className="btn btn-soft btn-sm" onClick={scrollToNext}>
-                <Icon name="arrow-left" size={14} /> השדה הבא
+          {!isCompleted && (
+            <div className="cv-hero-actions">
+              {!nothingToDo && filledCount < theirFields.length && (
+                <button className="btn btn-soft btn-sm" onClick={scrollToNext}>
+                  <Icon name="arrow-left" size={14} /> השדה הבא
+                </button>
+              )}
+              <button
+                className="btn btn-success"
+                disabled={!allDone && !nothingToDo}
+                onClick={() => setShowSummary(true)}
+                title={!allDone && !nothingToDo ? "יש להשלים את כל השדות לפני שליחה" : ""}
+              >
+                <Icon name="check" size={16} />
+                {nothingToDo ? "אישור וקבלת המסמך" : "סיום ושליחה חזרה"}
               </button>
-            )}
-            <button
-              className="btn btn-success"
-              disabled={!allDone && !nothingToDo}
-              onClick={() => setShowSummary(true)}
-              title={!allDone && !nothingToDo ? "יש להשלים את כל השדות לפני שליחה" : ""}
-            >
-              <Icon name="check" size={16} />
-              {nothingToDo ? "אישור וקבלת המסמך" : "סיום ושליחה חזרה"}
-            </button>
-          </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {!isCompleted && (
+        <div className="cv-tools">
+          <div className="cv-tools-inner">
+            <div className="cv-tool-card">
+              <div className="cv-tool-icon"><Icon name="pen-tool" size={16} /></div>
+              <div style={{ flex: 1 }}>
+                <div className="cv-tool-title">החתימה שלך</div>
+                {mySignature ? (
+                  <div className="cv-tool-preview">
+                    <img src={mySignature} alt="signature" />
+                    <button className="btn btn-ghost btn-sm" onClick={() => onNeedSignature()}>
+                      <Icon name="edit" size={12} /> שינוי
+                    </button>
+                  </div>
+                ) : (
+                  <button className="btn btn-soft btn-sm" onClick={() => onNeedSignature()}>
+                    <Icon name="plus" size={12} /> צור חתימה
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="cv-tool-card">
+              <div className="cv-tool-icon"><Icon name="stamp" size={16} /></div>
+              <div style={{ flex: 1 }}>
+                <div className="cv-tool-title">החותמת שלך</div>
+                {clientStamp ? (
+                  <div className="cv-tool-preview">
+                    <img src={clientStamp} alt="stamp" style={{ background: "#fff", borderRadius: 6 }} />
+                    <button className="btn btn-ghost btn-sm" onClick={() => stampInputRef.current && stampInputRef.current.click()}>
+                      <Icon name="edit" size={12} /> שינוי
+                    </button>
+                  </div>
+                ) : (
+                  <button className="btn btn-soft btn-sm" onClick={() => stampInputRef.current && stampInputRef.current.click()}>
+                    <Icon name="upload-cloud" size={12} /> העלאת חותמת
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="cv-stage" ref={stageRef}>
         <div className="zoom-bar cv-zoom-bar">
@@ -186,49 +292,40 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
         </div>
       </div>
 
-      {!allDone && !nothingToDo && filledCount < theirFields.length && (
+      {!isCompleted && !allDone && !nothingToDo && filledCount < theirFields.length && (
         <button className="cv-floating-next" onClick={scrollToNext} title="קפיצה לשדה הבא">
           <Icon name="pen-tool" size={16} />
           השדה הבא ({filledCount + 1}/{theirFields.length})
         </button>
       )}
 
-      <Modal open={showSummary} onClose={() => setShowSummary(false)} title="לאשר ולשלוח חזרה?" subtitle={`המסמך החתום יורד אליך כקובץ PDF. אפשר לשלוח אותו חזרה ל-${senderName} ב-WhatsApp או באימייל.`}>
+      <Modal open={showSummary} onClose={() => !submitting && setShowSummary(false)} title="לאשר ולשלוח חזרה?" subtitle={`עם האישור: ייווצר עותק חתום שיורד אליך, וייטבע בו תאריך ושעה אוטומטית. המסמך יישלח חזרה אל ${senderName}.`}>
         <div className="cv-summary">
           <div className="cv-summary-row"><Icon name="file-text" size={16} color="var(--blue-600)" /> {doc.name}</div>
           <div className="cv-summary-row"><Icon name="user-check" size={16} color="var(--green-600)" /> {filledCount} שדות מולאו על ידך</div>
-          <div className="cv-summary-row"><Icon name="shield-check" size={16} color="var(--blue-600)" /> חתימה מאובטחת וחתומה דיגיטלית</div>
+          <div className="cv-summary-row"><Icon name="clock" size={16} color="var(--blue-600)" /> חתימת זמן אוטומטית בסוף המסמך</div>
+          <div className="cv-summary-row"><Icon name="shield-check" size={16} color="var(--blue-600)" /> חתימה מאובטחת ושמירה אוטומטית אצל השולח</div>
         </div>
         <div className="modal-actions">
-          <button className="btn btn-success" onClick={() => { setShowSummary(false); onComplete && onComplete(); setShowDone(true); }}>
-            <Icon name="check" size={16} /> אישור והורדה
+          <button className="btn btn-success" disabled={submitting} onClick={submitAndShowDone}>
+            <Icon name={submitting ? "clock" : "check"} size={16} /> {submitting ? "שולח..." : "אישור ושליחה"}
           </button>
-          <button className="btn btn-ghost" onClick={() => setShowSummary(false)}>חזרה</button>
+          <button className="btn btn-ghost" disabled={submitting} onClick={() => setShowSummary(false)}>חזרה</button>
         </div>
       </Modal>
 
-      <Modal open={showDone} onClose={() => setShowDone(false)} title="המסמך נחתם!" subtitle={`קובץ PDF חתום ירד אליך. כדי לסגור את התהליך, שלח/י אותו חזרה אל ${senderName}.`}>
+      <Modal open={showDone} onClose={() => setShowDone(false)} title="המסמך נחתם ונשלח!" subtitle={`עותק חתום ירד אליך וגם נשלח חזרה אל ${senderName}. אפשר לסגור את החלון או להוריד שוב.`}>
         <div className="completion" style={{ padding: "8px 0 18px" }}>
           <div className="completion-circle"><Icon name="check" size={36} color="#fff" /></div>
         </div>
-        <div className="share-channels">
-          <button className="channel-btn" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent("שלום, מצורף המסמך החתום: " + doc.name)}`)}>
-            <div className="channel-icon" style={{ background: "#25D366" }}><Icon name="whatsapp" size={22} color="#fff" /></div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gray-800)" }}>WhatsApp</div>
-          </button>
-          <button className="channel-btn" onClick={() => window.open(`mailto:?subject=${encodeURIComponent("מסמך חתום: " + doc.name)}&body=${encodeURIComponent("שלום,\n\nמצורף בזאת המסמך החתום.\n\nתודה!")}`)}>
-            <div className="channel-icon" style={{ background: "var(--blue-500)" }}><Icon name="mail" size={20} color="#fff" /></div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gray-800)" }}>אימייל</div>
-          </button>
-          <button className="channel-btn" onClick={() => downloadDoc && downloadDoc(doc)}>
-            <div className="channel-icon" style={{ background: "var(--gray-700)" }}><Icon name="download" size={20} color="#fff" /></div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gray-800)" }}>הורדה שוב</div>
-          </button>
+        <div className="cv-summary">
+          <div className="cv-summary-row"><Icon name="check-circle" size={16} color="var(--green-600)" /> נשלח אל {senderName}</div>
+          <div className="cv-summary-row"><Icon name="download" size={16} color="var(--blue-600)" /> עותק PDF הורד אליך</div>
         </div>
-        <p style={{ fontSize: 12, color: "var(--gray-500)", margin: "14px 0 0", textAlign: "center", lineHeight: 1.55 }}>
-          טיפ: צרף/י את הקובץ שירד למחשב/לטלפון להודעה.
-        </p>
         <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={() => downloadDoc && downloadDoc(doc)}>
+            <Icon name="download" size={16} /> הורדה שוב
+          </button>
           <button className="btn btn-ghost" onClick={() => setShowDone(false)}>סגירה</button>
         </div>
       </Modal>

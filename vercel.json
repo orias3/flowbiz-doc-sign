@@ -1,6 +1,7 @@
 {
-  "cleanUrls": false,
-  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/s/:id", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
