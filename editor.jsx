@@ -8,8 +8,9 @@ const TOOLS = [
   { id: "text", name: "שם / טקסט", desc: "שורה חופשית", icon: "type", w: 180, h: 32 },
 ];
 
-const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignature, viewMode = "owner" }) => {
-  // viewMode: 'owner' (full editor) | 'counterparty' (fills their fields only)
+const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignature, viewMode = "owner", locked = false }) => {
+  // viewMode: 'owner' (full editor) | 'counterparty' (fills their fields only) | 'readonly' (no editing)
+  const isReadOnly = viewMode === "readonly" || locked;
   const [tool, setTool] = useStateE(null);
   const [assignee, setAssignee] = useStateE("me"); // "me" or "them"
   const [selectedField, setSelectedField] = useStateE(null);
@@ -24,6 +25,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
 
   // Place a field on click
   const handlePageClick = (e, pageIdx) => {
+    if (isReadOnly) return;
     if (viewMode !== "owner" || !tool) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = (e.clientX - rect.left) / zoom;
@@ -53,6 +55,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
 
   // Drag field
   const onFieldDragStart = (e, field) => {
+    if (isReadOnly) return;
     if (e.target.closest(".field-tool-btn") || e.target.closest(".field-resize")) return;
     e.preventDefault();
     e.stopPropagation();
@@ -81,6 +84,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
 
   // Resize field
   const onResizeStart = (e, field) => {
+    if (isReadOnly) return;
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX, startY = e.clientY;
@@ -106,11 +110,13 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
   };
 
   const deleteField = (id) => {
+    if (isReadOnly) return;
     updateDoc({ fields: doc.fields.filter(f => f.id !== id) });
     setSelectedField(null);
   };
 
   const fillField = (field, sigOverride) => {
+    if (isReadOnly) return;
     if (field.type === "signature") {
       const sig = sigOverride || mySignature;
       if (!sig) { onNeedSignature((newSig) => fillField(field, newSig)); return; }
@@ -146,10 +152,10 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
           (myTurn ? "pulse" : "")
         }
         style={{ left: field.x, top: field.y, width: field.w, height: field.h }}
-        onMouseDown={(e) => viewMode === "owner" && !isSystem && onFieldDragStart(e, field)}
+        onMouseDown={(e) => !isReadOnly && viewMode === "owner" && !isSystem && onFieldDragStart(e, field)}
         onClick={(e) => {
           e.stopPropagation();
-          if (isSystem) return;
+          if (isSystem || isReadOnly) return;
           setSelectedField(field.id);
           if (!filled && fillable) fillField(field);
         }}
@@ -159,7 +165,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
             {field.assignee === "me" ? "אתה" : "הצד השני"} · {TOOLS.find(t=>t.id===field.type)?.name}
           </div>
         )}
-        {viewMode === "owner" && !isSystem && (
+        {viewMode === "owner" && !isSystem && !isReadOnly && (
           <div className="field-tools">
             <button className="field-tool-btn" onClick={(e) => { e.stopPropagation(); deleteField(field.id); }} title="מחיקה">
               <Icon name="trash" size={13}/>
@@ -184,7 +190,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
         {filled && field.type === "text" && (
           <div className={"field-text " + (isSystem ? "field-system" : "")}>{field.value}</div>
         )}
-        {viewMode === "owner" && !isSystem && (
+        {viewMode === "owner" && !isSystem && !isReadOnly && (
           <div className="field-resize" onMouseDown={(e) => onResizeStart(e, field)}/>
         )}
       </div>
@@ -213,7 +219,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
     : "draft";
 
   return (
-    <div className="editor">
+    <div className={"editor " + (viewMode === "readonly" ? "editor-readonly" : "")}>
       {/* RIGHT SIDE (in RTL = first column visually = right): document info & status */}
       <aside className="editor-side right">
         <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ marginBottom: 14 }}>
@@ -284,6 +290,32 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
           </>
         )}
 
+        {viewMode === "readonly" && (
+          <div className="side-group">
+            <div className="locked-banner">
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <Icon name="shield-check" size={16} color="var(--blue-600)"/>
+                <strong style={{ color: "var(--blue-800)", fontSize: 13.5 }}>
+                  {doc.status === "completed" ? "מסמך חתום ונעול" : "המסמך נשלח — נעול לעריכה"}
+                </strong>
+              </div>
+              <p style={{ fontSize: 12.5, color: "var(--gray-600)", margin: 0, lineHeight: 1.55 }}>
+                {doc.status === "completed"
+                  ? "המסמך הושלם בידי שני הצדדים. ניתן לצפות בלבד ולהוריד עותק."
+                  : "אחרי שליחה הקישור יציג ללקוח את המסמך. כל שינוי כאן מושבת — לקבלת עותק חדש, יש לפתוח מסמך חדש."}
+              </p>
+            </div>
+            {doc.shareId && (
+              <div className="locked-link-row">
+                <input dir="ltr" readOnly value={`${location.origin}/s/${doc.shareId}`} onClick={(e) => e.target.select()} />
+                <button className="btn btn-soft btn-sm" onClick={() => { navigator.clipboard.writeText(`${location.origin}/s/${doc.shareId}`); }}>
+                  <Icon name="copy" size={13}/> העתק
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {viewMode === "counterparty" && (
           <div className="side-group">
             <div style={{ background: "var(--orange-50)", borderRadius: 14, padding: 14, border: "1px solid var(--orange-100)" }}>
@@ -344,7 +376,8 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
         </div>
       </div>
 
-      {/* LEFT SIDE: tools */}
+      {/* LEFT SIDE: tools (hidden when read-only) */}
+      {viewMode === "readonly" ? null : (
       <aside className="editor-side">
         {viewMode === "owner" ? (
           <>
@@ -439,6 +472,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
           </div>
         )}
       </aside>
+      )}
     </div>
   );
 };

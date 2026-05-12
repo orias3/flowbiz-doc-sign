@@ -1,4 +1,4 @@
-// Signature pad — draw or type
+// Signature pad — draw, type, or upload from file
 const { useState, useRef, useEffect } = React;
 
 const SIG_FONTS = [
@@ -8,16 +8,18 @@ const SIG_FONTS = [
 ];
 
 const SignaturePad = ({ open, onClose, onSave, defaultName = "" }) => {
-  const [mode, setMode] = useState("draw"); // draw | type
+  const [mode, setMode] = useState("draw"); // draw | type | upload
   const [typed, setTyped] = useState(defaultName);
   const [fontIdx, setFontIdx] = useState(0);
+  const [uploaded, setUploaded] = useState(null);
   const canvasRef = useRef(null);
+  const fileRef = useRef(null);
   const [hasStrokes, setHasStrokes] = useState(false);
   const drawing = useRef(false);
   const last = useRef(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || mode !== "draw") return;
     setTimeout(() => {
       const c = canvasRef.current;
       if (!c) return;
@@ -68,11 +70,26 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "" }) => {
     setHasStrokes(false);
   };
 
+  const onUploadFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) { alert("גודל מקסימלי לחתימה: 4MB"); return; }
+    const reader = new FileReader();
+    reader.onload = () => setUploaded(reader.result);
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
   const save = () => {
+    if (mode === "upload") {
+      if (!uploaded) return;
+      onSave(uploaded);
+      onClose();
+      return;
+    }
     if (mode === "draw") {
       if (!hasStrokes) return;
       const c = canvasRef.current;
-      // Trim to content
       const ctx = c.getContext("2d");
       const img = ctx.getImageData(0, 0, c.width, c.height);
       let minX = c.width, minY = c.height, maxX = 0, maxY = 0;
@@ -96,9 +113,9 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "" }) => {
       onSave(out.toDataURL("image/png"));
       onClose();
       return;
-    } else {
+    }
+    if (mode === "type") {
       if (!typed.trim()) return;
-      // Render typed signature to canvas
       const c = document.createElement("canvas");
       const dpr = 2;
       c.width = 800 * dpr; c.height = 220 * dpr;
@@ -111,7 +128,6 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "" }) => {
       ctx.textAlign = "center";
       ctx.direction = "rtl";
       ctx.fillText(typed, 400, 110);
-      // Trim
       const img = ctx.getImageData(0, 0, c.width, c.height);
       let minX = c.width, minY = c.height, maxX = 0, maxY = 0;
       for (let y = 0; y < c.height; y++) {
@@ -135,21 +151,20 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "" }) => {
     onClose();
   };
 
+  const canSave = mode === "draw" ? hasStrokes : mode === "type" ? !!typed.trim() : !!uploaded;
+
   return (
     <Modal open={open} onClose={onClose} wide
       title="צור את החתימה שלך"
-      subtitle="בחר/י לצייר את החתימה או להקליד את השם — נשמור אותה לשימוש חוזר במסמכים הבאים."
+      subtitle="צייר/י, הקליד/י שם או העלה/י תמונת חתימה — נשמור אותה לשימוש חוזר במסמכים הבאים."
     >
       <div className="sigpad-tabs">
-        <button className={mode === "draw" ? "active" : ""} onClick={() => setMode("draw")}>
-          ציור חופשי
-        </button>
-        <button className={mode === "type" ? "active" : ""} onClick={() => setMode("type")}>
-          הקלדת שם
-        </button>
+        <button className={mode === "draw" ? "active" : ""} onClick={() => setMode("draw")}>ציור חופשי</button>
+        <button className={mode === "type" ? "active" : ""} onClick={() => setMode("type")}>הקלדת שם</button>
+        <button className={mode === "upload" ? "active" : ""} onClick={() => setMode("upload")}>העלאה מקובץ</button>
       </div>
 
-      {mode === "draw" ? (
+      {mode === "draw" && (
         <>
           <div className="sigpad-canvas">
             <canvas ref={canvasRef}
@@ -167,7 +182,9 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "" }) => {
             </button>
           </div>
         </>
-      ) : (
+      )}
+
+      {mode === "type" && (
         <>
           <input
             value={typed} onChange={e => setTyped(e.target.value)}
@@ -193,9 +210,30 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "" }) => {
         </>
       )}
 
+      {mode === "upload" && (
+        <>
+          <input ref={fileRef} type="file" hidden accept="image/png,image/jpeg,image/svg+xml" onChange={onUploadFile} />
+          <div className="sigpad-upload">
+            {uploaded ? (
+              <div className="sigpad-upload-preview">
+                <img src={uploaded} alt="signature" />
+                <button className="btn btn-ghost btn-sm" onClick={() => fileRef.current && fileRef.current.click()}>
+                  <Icon name="upload-cloud" size={14}/> בחר/י קובץ אחר
+                </button>
+              </div>
+            ) : (
+              <button className="sigpad-upload-empty" onClick={() => fileRef.current && fileRef.current.click()}>
+                <div className="sigpad-upload-circle"><Icon name="upload-cloud" size={26}/></div>
+                <div style={{ fontWeight: 700, color: "var(--blue-900)", marginTop: 8 }}>העלאת תמונת חתימה</div>
+                <div style={{ fontSize: 12.5, color: "var(--gray-500)", marginTop: 2 }}>PNG / JPG / SVG · עד 4MB · רקע שקוף מומלץ</div>
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
       <div className="modal-actions">
-        <button className="btn btn-primary" onClick={save}
-          disabled={mode === "draw" ? !hasStrokes : !typed.trim()}>
+        <button className="btn btn-primary" onClick={save} disabled={!canSave}>
           <Icon name="check" size={16}/> שמירת חתימה
         </button>
         <button className="btn btn-ghost" onClick={onClose}>ביטול</button>

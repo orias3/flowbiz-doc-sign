@@ -225,14 +225,20 @@ function buildShortUrl(shareId) {
   return `${location.origin}/s/${shareId}`;
 }
 
-const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady }) => {
+const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, defaultClientEmail }) => {
   const [copied, setCopied] = useStateA(false);
   const [busy, setBusy] = useStateA(false);
   const [err, setErr] = useStateA("");
   const [shareId, setShareId] = useStateA(doc && doc.shareId ? doc.shareId : null);
+  const [clientEmail, setClientEmail] = useStateA(defaultClientEmail || (doc && doc.clientEmail) || "");
+  const [emailing, setEmailing] = useStateA(false);
+  const [emailSent, setEmailSent] = useStateA(false);
+  const [emailHint, setEmailHint] = useStateA("");
 
   useEffectA(() => {
     if (!open || !doc) return;
+    setEmailSent(false); setEmailHint("");
+    setClientEmail((prev) => prev || (doc.clientEmail || ""));
     if (doc.shareId) { setShareId(doc.shareId); return; }
     setBusy(true); setErr("");
     apiCreateShare(sanitizeForCounterparty(doc))
@@ -243,6 +249,39 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady }) => {
 
   if (!doc) return null;
   const url = shareId ? buildShortUrl(shareId) : "טוען...";
+
+  const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail.trim());
+
+  const sendViaServerEmail = async () => {
+    if (!shareId || !validEmail || emailing) return;
+    setEmailing(true); setEmailSent(false); setEmailHint("");
+    try {
+      const r = await fetch(`/api/share?id=${encodeURIComponent(shareId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientEmail: clientEmail.trim(), kind: "invite" }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        if (r.status === 503) {
+          // Email not configured server-side — fall back to mailto:
+          window.open(`mailto:${encodeURIComponent(clientEmail.trim())}?subject=${encodeURIComponent("מסמך לחתימה: " + doc.name)}&body=${encodeURIComponent("שלום,\n\nמצורף קישור לחתימה על המסמך:\n" + url + "\n\nתודה!")}`);
+          setEmailHint("נפתח אצלך לקוח המייל — שלח/י ידנית. (לשליחה אוטומטית, נדרשת התקנת מפתח Resend בשרת)");
+        } else {
+          setEmailHint(data.error || "שליחה נכשלה");
+        }
+      } else {
+        setEmailSent(true);
+        setEmailHint("המייל נשלח אל הצד השני בהצלחה.");
+        // Persist email choice locally for next-time prefill
+        try { localStorage.setItem("flowbiz-last-client-email", clientEmail.trim()); } catch {}
+      }
+    } catch (e) {
+      setEmailHint("שליחה נכשלה — נסה שוב");
+    } finally {
+      setEmailing(false);
+    }
+  };
 
   const copy = () => {
     if (!shareId) return;
@@ -265,18 +304,45 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady }) => {
       </div>
 
       <div className="share-channels">
-        <button className="channel-btn" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent("שלום, מצורף קישור לחתימה על המסמך: " + url)}`)}>
+        <button className="channel-btn" disabled={!shareId} onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent("שלום, מצורף קישור לחתימה על המסמך: " + url)}`)}>
           <div className="channel-icon" style={{ background: "#25D366" }}><Icon name="whatsapp" size={22} color="#fff" /></div>
           <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gray-800)" }}>WhatsApp</div>
         </button>
-        <button className="channel-btn" onClick={() => window.open(`mailto:?subject=${encodeURIComponent("מסמך לחתימה: " + doc.name)}&body=${encodeURIComponent("שלום,\n\nמצורף קישור לחתימה על המסמך:\n" + url + "\n\nתודה!")}`)}>
+        <button className="channel-btn" disabled={!shareId} onClick={() => window.open(`mailto:?subject=${encodeURIComponent("מסמך לחתימה: " + doc.name)}&body=${encodeURIComponent("שלום,\n\nמצורף קישור לחתימה על המסמך:\n" + url + "\n\nתודה!")}`)}>
           <div className="channel-icon" style={{ background: "var(--blue-500)" }}><Icon name="mail" size={20} color="#fff" /></div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gray-800)" }}>אימייל</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gray-800)" }}>אימייל ידני</div>
         </button>
-        <button className="channel-btn" onClick={copy}>
+        <button className="channel-btn" disabled={!shareId} onClick={copy}>
           <div className="channel-icon" style={{ background: "var(--gray-700)" }}><Icon name="link" size={18} color="#fff" /></div>
           <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gray-800)" }}>העתק קישור</div>
         </button>
+      </div>
+
+      <div className="share-email-block">
+        <div className="share-email-title">
+          <Icon name="send" size={14} color="var(--blue-600)" /> שליחה אוטומטית במייל
+        </div>
+        <div className="share-email-row">
+          <input
+            type="email" dir="ltr" placeholder="client@example.com"
+            value={clientEmail} onChange={(e) => setClientEmail(e.target.value)}
+            className="share-email-input"
+          />
+          <button
+            className="btn btn-primary btn-sm"
+            disabled={!shareId || !validEmail || emailing || emailSent}
+            onClick={sendViaServerEmail}
+          >
+            <Icon name={emailSent ? "check" : "send"} size={14} />
+            {emailing ? "שולח..." : emailSent ? "נשלח" : "שלח קישור"}
+          </button>
+        </div>
+        {emailHint && (
+          <div className={"share-email-hint " + (emailSent ? "ok" : "")}>{emailHint}</div>
+        )}
+        <div className="share-email-foot">
+          לאחר שהצד השני יחתום וישלח חזרה, יישלח אליו עותק חתום למייל זה אוטומטית.
+        </div>
       </div>
 
       {err && (
@@ -295,10 +361,9 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady }) => {
       </div>
 
       <div className="modal-actions">
-        <button className="btn btn-primary" onClick={() => {onMarkSent && onMarkSent();onClose();}}>
-          <Icon name="send" size={16} /> סיימתי — חזרה למסמכים
+        <button className="btn btn-primary" onClick={() => { onMarkSent && onMarkSent(); onClose(); }}>
+          <Icon name="arrow-right" size={16} /> סיימתי — חזרה למסמכים
         </button>
-        <button className="btn btn-ghost" onClick={onClose}>סגירה</button>
       </div>
     </Modal>);
 
@@ -619,34 +684,48 @@ const App = () => {
       }
 
       {view === "editor" && activeDoc &&
-      <>
+      (() => {
+        const ownerLocked = !!activeDoc.shareId || activeDoc.status === "completed";
+        return (
+        <>
           <div className="topbar">
             <div className="brand">
               <img src="assets/logo.png" alt="FlowBiz" />
               <div>
-                <div className="brand-title">{activeDoc.name}</div>
-                <div className="brand-sub">{DOC_TEMPLATES[activeDoc.template]?.counterparty}</div>
+                <div className="brand-title">
+                  {activeDoc.name}
+                  {ownerLocked && (
+                    <span className="pill pill-ok" style={{ marginInlineStart: 8 }}>
+                      <Icon name={activeDoc.status === "completed" ? "check-circle" : "shield-check"} size={11} />
+                      {activeDoc.status === "completed" ? "חתום ונעול" : "נשלח — נעול"}
+                    </span>
+                  )}
+                </div>
+                <div className="brand-sub">{DOC_TEMPLATES[activeDoc.template]?.counterparty || activeDoc.counterparty}</div>
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button className="btn btn-secondary btn-sm" onClick={() => downloadDoc(activeDoc)}>
                 <Icon name="download" size={14} /> הורדה
               </button>
-              <button className="btn btn-secondary btn-sm" onClick={() => {setView("library");setActiveDocId(null);}}>
+              <button className="btn btn-secondary btn-sm" onClick={() => { setView("library"); setActiveDocId(null); }}>
                 <Icon name="arrow-right" size={14} /> חזרה
               </button>
             </div>
           </div>
           <Editor
-          doc={activeDoc}
-          onUpdate={updateDoc}
-          onBack={() => {setView("library");setActiveDocId(null);}}
-          onOpenShare={openShare}
-          mySignature={mySignature}
-          onNeedSignature={(after) => {setSigAfter(() => after);setSigOpen(true);}}
-          viewMode="owner" />
-        
+            doc={activeDoc}
+            onUpdate={updateDoc}
+            onBack={() => { setView("library"); setActiveDocId(null); }}
+            onOpenShare={openShare}
+            mySignature={mySignature}
+            onNeedSignature={(after) => { setSigAfter(() => after); setSigOpen(true); }}
+            viewMode={ownerLocked ? "readonly" : "owner"}
+            locked={ownerLocked}
+          />
         </>
+        );
+      })()
       }
 
       {view === "counterparty" && shareLoading &&
@@ -701,7 +780,16 @@ const App = () => {
         onClose={() => setShareOpen(false)}
         doc={activeDoc}
         onShareReady={onShareReady}
-        onMarkSent={() => showToast("הקישור מוכן — אפשר לשלוח לצד השני")} />
+        defaultClientEmail={(typeof localStorage !== "undefined" && localStorage.getItem("flowbiz-last-client-email")) || ""}
+        onMarkSent={() => {
+          showToast("הקישור נשלח — חוזרים לספריית המסמכים");
+          setShareOpen(false);
+          setView("library");
+          setActiveDocId(null);
+          setSharedDoc(null);
+          setSharedId(null);
+        }}
+      />
       
 
       <Toast message={toast} />
