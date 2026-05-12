@@ -705,13 +705,28 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, defaultClien
 
 };
 
-const SavedSignaturesModal = ({ open, onClose, refreshKey, onDrawNew }) => {
+const SavedSignaturesModal = ({ open, onClose, refreshKey, onDrawNew, highlightId }) => {
   const [sigs, setSigs] = useStateA(() => loadSavedSignatures());
   const fileRef = React.useRef(null);
+  const highlightInputRef = React.useRef(null);
 
   useEffectA(() => {
     if (open) setSigs(loadSavedSignatures());
   }, [open, refreshKey]);
+
+  // When a new signature was just added (and the modal is showing it), auto-focus
+  // its name input and scroll it into view so the user can immediately type a name.
+  useEffectA(() => {
+    if (!open || !highlightId) return;
+    const t = setTimeout(() => {
+      const el = highlightInputRef.current;
+      if (el) {
+        try { el.scrollIntoView({ behavior: "smooth", block: "center" }); } catch {}
+        try { el.focus(); el.select(); } catch {}
+      }
+    }, 80);
+    return () => clearTimeout(t);
+  }, [open, highlightId, refreshKey]);
 
   const persist = (next) => { setSigs(next); saveSavedSignatures(next); };
 
@@ -766,13 +781,22 @@ const SavedSignaturesModal = ({ open, onClose, refreshKey, onDrawNew }) => {
         </div>
       ) : (
         <div className="saved-sigs-list">
-          {sigs.map((s) => (
-            <div key={s.id} className="saved-sig-item">
-              <div className="saved-sig-preview"><img src={s.dataUrl} alt={s.name} /></div>
-              <input className="saved-sig-name" value={s.name} onChange={(e) => updateName(s.id, e.target.value)} placeholder="שם המורשה (לדוגמה: אורי אשר)" />
-              <button className="qicon-btn danger" onClick={() => deleteSig(s.id)} title="מחיקה"><Icon name="trash" size={13} /></button>
-            </div>
-          ))}
+          {sigs.map((s) => {
+            const isHighlight = highlightId === s.id;
+            return (
+              <div key={s.id} className={"saved-sig-item " + (isHighlight ? "highlighted" : "")}>
+                <div className="saved-sig-preview"><img src={s.dataUrl} alt={s.name} /></div>
+                <input
+                  ref={isHighlight ? highlightInputRef : null}
+                  className="saved-sig-name"
+                  value={s.name}
+                  onChange={(e) => updateName(s.id, e.target.value)}
+                  placeholder="שם המורשה (לדוגמה: אורי אשר)"
+                />
+                <button className="qicon-btn danger" onClick={() => deleteSig(s.id)} title="מחיקה"><Icon name="trash" size={13} /></button>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -1085,6 +1109,7 @@ const App = () => {
   const [btFormEditingId, setBtFormEditingId] = useStateA(null);
   const [savedSigsOpen, setSavedSigsOpen] = useStateA(false);
   const [savedSigsRefreshKey, setSavedSigsRefreshKey] = useStateA(0);
+  const [highlightSigId, setHighlightSigId] = useStateA(null);
   const [sigDefaultMode, setSigDefaultMode] = useStateA("draw");
   const [sigUpdateMain, setSigUpdateMain] = useStateA(true);
   const [sharedDoc, setSharedDoc] = useStateA(null);   // doc fetched from API (client view)
@@ -1278,12 +1303,17 @@ const App = () => {
 
   // "צייר חתימה חדשה" inside SavedSignaturesModal: open SignaturePad in draw mode,
   // and on save push the result into the saved-signatures library (without touching mySignature).
+  // The saved-sigs modal hides automatically while the signature pad is open (controlled
+  // by the open prop below: savedSigsOpen && !sigOpen). After the pad closes the saved-sigs
+  // modal reappears and the newly-added entry's name input is auto-focused so the user
+  // can immediately type whose signature it is.
   const onSavedSigsDrawNew = () => {
     requestSignature((dataUrl) => {
-      const fresh = { id: "sig-" + genId(), name: "חתימה חדשה", dataUrl, createdAt: Date.now() };
+      const fresh = { id: "sig-" + genId(), name: "", dataUrl, createdAt: Date.now() };
       saveSavedSignatures([fresh, ...loadSavedSignatures()]);
       setSavedSigsRefreshKey((k) => k + 1);
-      showToast("חתימה חדשה נשמרה לספריה");
+      setHighlightSigId(fresh.id);
+      showToast("חתימה חדשה נשמרה — תן/תני לה שם");
     }, { defaultMode: "draw", updateMain: false });
   };
 
@@ -1631,10 +1661,11 @@ const App = () => {
       />
 
       <SavedSignaturesModal
-        open={savedSigsOpen}
-        onClose={() => setSavedSigsOpen(false)}
+        open={savedSigsOpen && !sigOpen}
+        onClose={() => { setSavedSigsOpen(false); setHighlightSigId(null); }}
         refreshKey={savedSigsRefreshKey}
         onDrawNew={onSavedSigsDrawNew}
+        highlightId={highlightSigId}
       />
 
       <Toast message={toast} />

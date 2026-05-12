@@ -1021,6 +1021,16 @@ input, textarea { font-family: inherit; }
   display: flex; align-items: center; gap: 10px;
   background: #fff; border: 1.5px solid var(--gray-100); border-radius: 12px;
   padding: 8px 10px;
+  transition: border-color 200ms var(--ease), box-shadow 200ms var(--ease);
+}
+.saved-sig-item.highlighted {
+  border-color: var(--blue-400);
+  box-shadow: 0 0 0 3px rgba(27,132,255,.18);
+  animation: sig-highlight-pulse 1.4s ease-out;
+}
+@keyframes sig-highlight-pulse {
+  0% { box-shadow: 0 0 0 8px rgba(27,132,255,.28); }
+  100% { box-shadow: 0 0 0 3px rgba(27,132,255,.18); }
 }
 .saved-sig-preview {
   width: 130px; height: 56px; flex-shrink: 0;
