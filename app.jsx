@@ -231,6 +231,30 @@ function buildShortUrl(shareId) {
 }
 
 // Modal for creating or editing a FlowBiz price quote
+// Stable top-level section component for the QuoteFormModal accordion.
+// IMPORTANT: must NOT be defined inside QuoteFormModal — React would treat it
+// as a new component type on every keystroke, unmount/remount the body and
+// reset both the scroll position and input focus.
+const QuoteFormSection = ({ title, toggleable, included, count, isOpen, onToggleOpen, onToggleIncluded, children }) => (
+  <div className={"qsec " + (isOpen ? "open " : "") + (toggleable && !included ? "off" : "")}>
+    <div className="qsec-head" onClick={onToggleOpen}>
+      <div className="qsec-title">
+        <Icon name="chevron-left" size={14} />
+        <span>{title}</span>
+        {count != null && <span className="qsec-count">{count}</span>}
+        {toggleable && !included && <span className="qsec-off-pill">מוסתר</span>}
+      </div>
+      {toggleable && (
+        <label className="qsec-toggle" onClick={(e) => e.stopPropagation()}>
+          <input type="checkbox" checked={included} onChange={(e) => onToggleIncluded(e.target.checked)} />
+          <span>{included ? "כלול במסמך" : "מוסתר"}</span>
+        </label>
+      )}
+    </div>
+    {isOpen && <div className="qsec-body">{children}</div>}
+  </div>
+);
+
 const CARD_ICONS = [
   { value: "check-circle", label: "✓ סימן" },
   { value: "whatsapp", label: "וואטסאפ" },
@@ -271,29 +295,22 @@ const QuoteFormModal = ({ open, onClose, onSubmit, initial }) => {
 
   const canSave = data.clientName && data.clientName.trim().length > 0;
 
-  const Section = ({ id, title, toggleable, includedKey, count, children }) => {
-    const isOpen = openSection === id;
-    const included = includedKey ? !!data[includedKey] : true;
-    return (
-      <div className={"qsec " + (isOpen ? "open " : "") + (toggleable && !included ? "off" : "")}>
-        <div className="qsec-head" onClick={() => setOpenSection(isOpen ? null : id)}>
-          <div className="qsec-title">
-            <Icon name={isOpen ? "chevron-left" : "chevron-left"} size={14} />
-            <span>{title}</span>
-            {count != null && <span className="qsec-count">{count}</span>}
-            {toggleable && !included && <span className="qsec-off-pill">מוסתר</span>}
-          </div>
-          {toggleable && (
-            <label className="qsec-toggle" onClick={(e) => e.stopPropagation()}>
-              <input type="checkbox" checked={included} onChange={(e) => update({ [includedKey]: e.target.checked })} />
-              <span>{included ? "כלול במסמך" : "מוסתר"}</span>
-            </label>
-          )}
-        </div>
-        {isOpen && <div className="qsec-body">{children}</div>}
-      </div>
-    );
-  };
+  // Helper to render a section without creating a new component type each render.
+  // Uses the lifted QuoteFormSection so React doesn't unmount/remount on edits.
+  const sec = (id, title, opts, children) => (
+    <QuoteFormSection
+      key={id}
+      title={title}
+      toggleable={!!opts.toggleable}
+      included={opts.includedKey ? !!data[opts.includedKey] : true}
+      count={opts.count}
+      isOpen={openSection === id}
+      onToggleOpen={() => setOpenSection(openSection === id ? null : id)}
+      onToggleIncluded={opts.includedKey ? (v) => update({ [opts.includedKey]: v }) : undefined}
+    >
+      {children}
+    </QuoteFormSection>
+  );
 
   return (
     <Modal open={open} onClose={onClose} wide
@@ -301,164 +318,180 @@ const QuoteFormModal = ({ open, onClose, onSubmit, initial }) => {
       subtitle="כל שינוי ייקלט מיידית במסמך אחרי שמירה. אפשר להפעיל/לכבות סקשנים שלמים ולערוך כל פריט.">
       <div className="qform">
 
-        <Section id="client" title="פרטי לקוח">
-          <label className="qfield">
-            <span>שם הלקוח / לקוחה <span className="req">*</span></span>
-            <input value={data.clientName} onChange={(e) => update({ clientName: e.target.value })} placeholder="לדוגמה: אלישבע" autoFocus />
-          </label>
-          <label className="qfield">
-            <span>שם העסק</span>
-            <input value={data.businessName} onChange={(e) => update({ businessName: e.target.value })} placeholder="(אם זהה לשם הלקוח אפשר להשאיר ריק)" />
-          </label>
-          <label className="qfield">
-            <span>תאריך הצעה</span>
-            <input value={data.quoteDate} onChange={(e) => update({ quoteDate: e.target.value })} placeholder="DD.MM.YYYY" dir="ltr" />
-          </label>
-        </Section>
-
-        <Section id="pricing" title="מחיר וחבילה">
-          <label className="qfield">
-            <span>שם החבילה</span>
-            <input value={data.packageName} onChange={(e) => update({ packageName: e.target.value })} />
-          </label>
-          <label className="qfield">
-            <span>תיאור משנה</span>
-            <input value={data.packageSub} onChange={(e) => update({ packageSub: e.target.value })} />
-          </label>
-          <div className="qgrid">
+        {sec("client", "פרטי לקוח", {}, (
+          <>
             <label className="qfield">
-              <span>מחיר מבצע (₪/חודש)</span>
-              <input value={data.monthlyPrice} onChange={(e) => update({ monthlyPrice: e.target.value })} dir="ltr" />
+              <span>שם הלקוח / לקוחה <span className="req">*</span></span>
+              <input value={data.clientName} onChange={(e) => update({ clientName: e.target.value })} placeholder="לדוגמה: אלישבע" autoFocus />
             </label>
             <label className="qfield">
-              <span>מחיר מחירון (₪/חודש)</span>
-              <input value={data.fullPrice} onChange={(e) => update({ fullPrice: e.target.value })} dir="ltr" />
+              <span>שם העסק</span>
+              <input value={data.businessName} onChange={(e) => update({ businessName: e.target.value })} placeholder="(אם זהה לשם הלקוח אפשר להשאיר ריק)" />
             </label>
-          </div>
-          <label className="qfield">
-            <span>טקסט חיסכון</span>
-            <input value={data.savingsText} onChange={(e) => update({ savingsText: e.target.value })} placeholder="(השאר ריק להסתרה)" />
-          </label>
-          <label className="qfield">
-            <span>תווית מחיר (תחת המספר)</span>
-            <input value={data.monthsLabel} onChange={(e) => update({ monthsLabel: e.target.value })} />
-          </label>
-          <label className="qfield">
-            <span>הערת תחתית בקופסת המחיר</span>
-            <textarea rows={2} value={data.pricingFootnote} onChange={(e) => update({ pricingFootnote: e.target.value })} />
-            <small>אפשר להשתמש ב-<code>{"{monthlyPrice}"}</code> ו-<code>{"{fullPrice}"}</code> כפלייסהולדרים.</small>
-          </label>
-        </Section>
+            <label className="qfield">
+              <span>תאריך הצעה</span>
+              <input value={data.quoteDate} onChange={(e) => update({ quoteDate: e.target.value })} placeholder="DD.MM.YYYY" dir="ltr" />
+            </label>
+          </>
+        ))}
 
-        <Section id="cards" title='"מה תקבלו בחבילה" (כרטיסים)' toggleable includedKey="showCards" count={data.cards.length}>
-          {data.cards.map((c, i) => (
-            <div key={i} className="qrowblock">
-              <div className="qrowblock-head">
-                <select value={c.icon} onChange={(e) => updateRow("cards", i, { icon: e.target.value })}>
-                  {CARD_ICONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                </select>
-                <input value={c.title} onChange={(e) => updateRow("cards", i, { title: e.target.value })} placeholder="כותרת כרטיס" />
-                <button className="qicon-btn danger" onClick={() => removeAt("cards", i)} title="מחיקה"><Icon name="trash" size={13}/></button>
+        {sec("pricing", "מחיר וחבילה", {}, (
+          <>
+            <label className="qfield">
+              <span>שם החבילה</span>
+              <input value={data.packageName} onChange={(e) => update({ packageName: e.target.value })} />
+            </label>
+            <label className="qfield">
+              <span>תיאור משנה</span>
+              <input value={data.packageSub} onChange={(e) => update({ packageSub: e.target.value })} />
+            </label>
+            <div className="qgrid">
+              <label className="qfield">
+                <span>מחיר מבצע (₪/חודש)</span>
+                <input value={data.monthlyPrice} onChange={(e) => update({ monthlyPrice: e.target.value })} dir="ltr" />
+              </label>
+              <label className="qfield">
+                <span>מחיר מחירון (₪/חודש)</span>
+                <input value={data.fullPrice} onChange={(e) => update({ fullPrice: e.target.value })} dir="ltr" />
+              </label>
+            </div>
+            <label className="qfield">
+              <span>טקסט חיסכון</span>
+              <input value={data.savingsText} onChange={(e) => update({ savingsText: e.target.value })} placeholder="(השאר ריק להסתרה)" />
+            </label>
+            <label className="qfield">
+              <span>תווית מחיר (תחת המספר)</span>
+              <input value={data.monthsLabel} onChange={(e) => update({ monthsLabel: e.target.value })} />
+            </label>
+            <label className="qfield">
+              <span>הערת תחתית בקופסת המחיר</span>
+              <textarea rows={2} value={data.pricingFootnote} onChange={(e) => update({ pricingFootnote: e.target.value })} />
+              <small>אפשר להשתמש ב-<code>{"{monthlyPrice}"}</code> ו-<code>{"{fullPrice}"}</code> כפלייסהולדרים.</small>
+            </label>
+          </>
+        ))}
+
+        {sec("cards", '"מה תקבלו בחבילה" (כרטיסים)', { toggleable: true, includedKey: "showCards", count: data.cards.length }, (
+          <>
+            {data.cards.map((c, i) => (
+              <div key={i} className="qrowblock">
+                <div className="qrowblock-head">
+                  <select value={c.icon} onChange={(e) => updateRow("cards", i, { icon: e.target.value })}>
+                    {CARD_ICONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                  </select>
+                  <input value={c.title} onChange={(e) => updateRow("cards", i, { title: e.target.value })} placeholder="כותרת כרטיס" />
+                  <button className="qicon-btn danger" onClick={() => removeAt("cards", i)} title="מחיקה"><Icon name="trash" size={13}/></button>
+                </div>
               </div>
-            </div>
-          ))}
-          <button className="qadd-btn" onClick={() => appendTo("cards", { icon: "check-circle", title: "" })}>
-            <Icon name="plus" size={13}/> הוסף כרטיס
-          </button>
-        </Section>
+            ))}
+            <button className="qadd-btn" onClick={() => appendTo("cards", { icon: "check-circle", title: "" })}>
+              <Icon name="plus" size={13}/> הוסף כרטיס
+            </button>
+          </>
+        ))}
 
-        <Section id="features" title="פיצ׳רים בתוך החבילה" toggleable includedKey="showFeatures" count={data.features.length}>
-          {data.features.map((f, i) => (
-            <div key={i} className="qrow-edit">
-              <input value={f} onChange={(e) => updateAt("features", i, e.target.value)} placeholder="טקסט פיצ׳ר" />
-              <button className="qicon-btn danger" onClick={() => removeAt("features", i)} title="מחיקה"><Icon name="trash" size={13}/></button>
-            </div>
-          ))}
-          <button className="qadd-btn" onClick={() => appendTo("features", "")}>
-            <Icon name="plus" size={13}/> הוסף פיצ׳ר
-          </button>
-        </Section>
-
-        <Section id="acct" title="ראיית חשבון (אופציונלי)" toggleable includedKey="showAccounting" count={data.accountingRows.length}>
-          <label className="qfield">
-            <span>כותרת</span>
-            <input value={data.accountingTitle} onChange={(e) => update({ accountingTitle: e.target.value })} />
-          </label>
-          <label className="qfield">
-            <span>פסקת פתיחה</span>
-            <textarea rows={2} value={data.accountingLead} onChange={(e) => update({ accountingLead: e.target.value })} />
-          </label>
-          <label className="qfield">
-            <span>באנר עליון בטבלה</span>
-            <input value={data.accountingBanner} onChange={(e) => update({ accountingBanner: e.target.value })} />
-          </label>
-
-          <div className="qsubtitle">שורות הטבלה</div>
-          {data.accountingRows.map((r, i) => (
-            <div key={i} className="qrowblock">
-              <div className="qrowblock-head">
-                <input value={r.name} onChange={(e) => updateRow("accountingRows", i, { name: e.target.value })} placeholder="שם רכיב" />
-                <button className="qicon-btn danger" onClick={() => removeAt("accountingRows", i)} title="מחיקה"><Icon name="trash" size={13}/></button>
+        {sec("features", "פיצ׳רים בתוך החבילה", { toggleable: true, includedKey: "showFeatures", count: data.features.length }, (
+          <>
+            {data.features.map((f, i) => (
+              <div key={i} className="qrow-edit">
+                <input value={f} onChange={(e) => updateAt("features", i, e.target.value)} placeholder="טקסט פיצ׳ר" />
+                <button className="qicon-btn danger" onClick={() => removeAt("features", i)} title="מחיקה"><Icon name="trash" size={13}/></button>
               </div>
-              <input value={r.desc} onChange={(e) => updateRow("accountingRows", i, { desc: e.target.value })} placeholder="תיאור" />
-              <input value={r.descItalic || ""} onChange={(e) => updateRow("accountingRows", i, { descItalic: e.target.value })} placeholder="הערה (אופציונלי, יוצג בנטוי)" />
-              <div className="qgrid">
-                <input value={r.price} onChange={(e) => updateRow("accountingRows", i, { price: e.target.value })} placeholder="מחיר" />
-                <input value={r.when} onChange={(e) => updateRow("accountingRows", i, { when: e.target.value })} placeholder="מועד חיוב" />
-              </div>
-            </div>
-          ))}
-          <button className="qadd-btn" onClick={() => appendTo("accountingRows", { name: "", desc: "", descItalic: "", price: "", when: "" })}>
-            <Icon name="plus" size={13}/> הוסף שורה
-          </button>
+            ))}
+            <button className="qadd-btn" onClick={() => appendTo("features", "")}>
+              <Icon name="plus" size={13}/> הוסף פיצ׳ר
+            </button>
+          </>
+        ))}
 
-          <div className="qsubtitle">סימוני ✓ למטה</div>
-          {data.accountingChecks.map((c, i) => (
-            <div key={i} className="qrow-edit">
-              <input value={c} onChange={(e) => updateAt("accountingChecks", i, e.target.value)} placeholder="טקסט" />
-              <button className="qicon-btn danger" onClick={() => removeAt("accountingChecks", i)} title="מחיקה"><Icon name="trash" size={13}/></button>
-            </div>
-          ))}
-          <button className="qadd-btn" onClick={() => appendTo("accountingChecks", "")}>
-            <Icon name="plus" size={13}/> הוסף סימון
-          </button>
-        </Section>
-
-        <Section id="refund" title="הבטחת החזר" toggleable includedKey="showRefund">
-          <label className="qfield">
-            <span>כותרת</span>
-            <input value={data.refundTitle} onChange={(e) => update({ refundTitle: e.target.value })} />
-          </label>
-          <label className="qfield">
-            <span>תוכן</span>
-            <textarea rows={2} value={data.refundBody} onChange={(e) => update({ refundBody: e.target.value })} />
-          </label>
-        </Section>
-
-        <Section id="contact" title="פרטי קשר ותוקף" toggleable includedKey="showContact">
-          <div className="qgrid">
+        {sec("acct", "ראיית חשבון (אופציונלי)", { toggleable: true, includedKey: "showAccounting", count: data.accountingRows.length }, (
+          <>
             <label className="qfield">
-              <span>טלפון / וואטסאפ</span>
-              <input value={data.phone} onChange={(e) => update({ phone: e.target.value })} dir="ltr" />
+              <span>כותרת</span>
+              <input value={data.accountingTitle} onChange={(e) => update({ accountingTitle: e.target.value })} />
             </label>
             <label className="qfield">
-              <span>אימייל</span>
-              <input value={data.email} onChange={(e) => update({ email: e.target.value })} dir="ltr" />
+              <span>פסקת פתיחה</span>
+              <textarea rows={2} value={data.accountingLead} onChange={(e) => update({ accountingLead: e.target.value })} />
             </label>
-          </div>
-          <label className="qfield">
-            <span>תוקף ההצעה</span>
-            <input value={data.validity} onChange={(e) => update({ validity: e.target.value })} />
-          </label>
-        </Section>
+            <label className="qfield">
+              <span>באנר עליון בטבלה</span>
+              <input value={data.accountingBanner} onChange={(e) => update({ accountingBanner: e.target.value })} />
+            </label>
 
-        <Section id="terms" title="תנאי הצעה" toggleable includedKey="showTerms">
-          <label className="qfield">
-            <span>טקסט תנאים</span>
-            <textarea rows={5} value={data.termsText} onChange={(e) => update({ termsText: e.target.value })} />
-            <small>אפשר להשתמש ב-<code>{"{monthlyPrice}"}</code> ו-<code>{"{fullPrice}"}</code> כפלייסהולדרים.</small>
-          </label>
-        </Section>
+            <div className="qsubtitle">שורות הטבלה</div>
+            {data.accountingRows.map((r, i) => (
+              <div key={i} className="qrowblock">
+                <div className="qrowblock-head">
+                  <input value={r.name} onChange={(e) => updateRow("accountingRows", i, { name: e.target.value })} placeholder="שם רכיב" />
+                  <button className="qicon-btn danger" onClick={() => removeAt("accountingRows", i)} title="מחיקה"><Icon name="trash" size={13}/></button>
+                </div>
+                <input value={r.desc} onChange={(e) => updateRow("accountingRows", i, { desc: e.target.value })} placeholder="תיאור" />
+                <input value={r.descItalic || ""} onChange={(e) => updateRow("accountingRows", i, { descItalic: e.target.value })} placeholder="הערה (אופציונלי, יוצג בנטוי)" />
+                <div className="qgrid">
+                  <input value={r.price} onChange={(e) => updateRow("accountingRows", i, { price: e.target.value })} placeholder="מחיר" />
+                  <input value={r.when} onChange={(e) => updateRow("accountingRows", i, { when: e.target.value })} placeholder="מועד חיוב" />
+                </div>
+              </div>
+            ))}
+            <button className="qadd-btn" onClick={() => appendTo("accountingRows", { name: "", desc: "", descItalic: "", price: "", when: "" })}>
+              <Icon name="plus" size={13}/> הוסף שורה
+            </button>
+
+            <div className="qsubtitle">סימוני ✓ למטה</div>
+            {data.accountingChecks.map((c, i) => (
+              <div key={i} className="qrow-edit">
+                <input value={c} onChange={(e) => updateAt("accountingChecks", i, e.target.value)} placeholder="טקסט" />
+                <button className="qicon-btn danger" onClick={() => removeAt("accountingChecks", i)} title="מחיקה"><Icon name="trash" size={13}/></button>
+              </div>
+            ))}
+            <button className="qadd-btn" onClick={() => appendTo("accountingChecks", "")}>
+              <Icon name="plus" size={13}/> הוסף סימון
+            </button>
+          </>
+        ))}
+
+        {sec("refund", "הבטחת החזר", { toggleable: true, includedKey: "showRefund" }, (
+          <>
+            <label className="qfield">
+              <span>כותרת</span>
+              <input value={data.refundTitle} onChange={(e) => update({ refundTitle: e.target.value })} />
+            </label>
+            <label className="qfield">
+              <span>תוכן</span>
+              <textarea rows={2} value={data.refundBody} onChange={(e) => update({ refundBody: e.target.value })} />
+            </label>
+          </>
+        ))}
+
+        {sec("contact", "פרטי קשר ותוקף", { toggleable: true, includedKey: "showContact" }, (
+          <>
+            <div className="qgrid">
+              <label className="qfield">
+                <span>טלפון / וואטסאפ</span>
+                <input value={data.phone} onChange={(e) => update({ phone: e.target.value })} dir="ltr" />
+              </label>
+              <label className="qfield">
+                <span>אימייל</span>
+                <input value={data.email} onChange={(e) => update({ email: e.target.value })} dir="ltr" />
+              </label>
+            </div>
+            <label className="qfield">
+              <span>תוקף ההצעה</span>
+              <input value={data.validity} onChange={(e) => update({ validity: e.target.value })} />
+            </label>
+          </>
+        ))}
+
+        {sec("terms", "תנאי הצעה", { toggleable: true, includedKey: "showTerms" }, (
+          <>
+            <label className="qfield">
+              <span>טקסט תנאים</span>
+              <textarea rows={5} value={data.termsText} onChange={(e) => update({ termsText: e.target.value })} />
+              <small>אפשר להשתמש ב-<code>{"{monthlyPrice}"}</code> ו-<code>{"{fullPrice}"}</code> כפלייסהולדרים.</small>
+            </label>
+          </>
+        ))}
 
       </div>
       <div className="modal-actions">
