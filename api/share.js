@@ -1,4 +1,5 @@
 import { put, head } from '@vercel/blob';
+import nodemailer from 'nodemailer';
 
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 function genId(len = 8) {
@@ -26,20 +27,27 @@ function getOrigin(req) {
   return `${proto}://${host}`;
 }
 
+let cachedTransport = null;
+function getTransport() {
+  if (cachedTransport) return cachedTransport;
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+  if (!user || !pass) return null;
+  cachedTransport = nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user, pass },
+  });
+  return cachedTransport;
+}
+
 async function sendEmail({ to, subject, html }) {
-  const key = process.env.RESEND_API_KEY;
-  if (!key || !to) return { sent: false, reason: 'not_configured' };
-  const from = process.env.EMAIL_FROM || 'FlowBiz Sign <onboarding@resend.dev>';
+  if (!to) return { sent: false, reason: 'no_recipient' };
+  const transport = getTransport();
+  if (!transport) return { sent: false, reason: 'not_configured' };
+  const user = process.env.GMAIL_USER;
+  const from = process.env.EMAIL_FROM || `FlowBiz Sign <${user}>`;
   try {
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to, subject, html }),
-    });
-    if (!r.ok) {
-      const errText = await r.text().catch(() => '');
-      return { sent: false, reason: 'send_failed', detail: errText };
-    }
+    await transport.sendMail({ from, to, subject, html });
     return { sent: true };
   } catch (e) {
     return { sent: false, reason: 'send_failed', detail: String(e && e.message || e) };

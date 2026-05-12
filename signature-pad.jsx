@@ -1,16 +1,11 @@
 // Signature pad — draw, type, or upload from file
 const { useState, useRef, useEffect } = React;
 
-const SIG_FONTS = [
-  { name: "Caveat", family: "'Caveat', cursive" },
-  { name: "Dancing Script", family: "'Dancing Script', cursive" },
-  { name: "Sacramento", family: "'Sacramento', cursive" },
-];
+const SIG_FONT_FAMILY = "'Heebo', sans-serif";
 
 const SignaturePad = ({ open, onClose, onSave, defaultName = "" }) => {
   const [mode, setMode] = useState("draw"); // draw | type | upload
   const [typed, setTyped] = useState(defaultName);
-  const [fontIdx, setFontIdx] = useState(0);
   const [uploaded, setUploaded] = useState(null);
   const canvasRef = useRef(null);
   const fileRef = useRef(null);
@@ -122,8 +117,7 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "" }) => {
       const ctx = c.getContext("2d");
       ctx.scale(dpr, dpr);
       ctx.fillStyle = "#0E2A5C";
-      const fam = SIG_FONTS[fontIdx].family;
-      ctx.font = `64px ${fam}`;
+      ctx.font = `700 56px ${SIG_FONT_FAMILY}`;
       ctx.textBaseline = "middle";
       ctx.textAlign = "center";
       ctx.direction = "rtl";
@@ -195,17 +189,8 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "" }) => {
               fontFamily: "inherit"
             }}
           />
-          <div className="sigpad-typed" style={{ fontFamily: SIG_FONTS[fontIdx].family }}>
+          <div className="sigpad-typed" style={{ fontFamily: SIG_FONT_FAMILY, fontWeight: 700 }}>
             {typed || "השם שלך…"}
-          </div>
-          <div className="font-choice">
-            {SIG_FONTS.map((f, i) => (
-              <button key={f.name}
-                onClick={() => setFontIdx(i)}
-                className={i === fontIdx ? "active" : ""}
-                style={{ fontFamily: f.family }}
-              >{typed || "Signature"}</button>
-            ))}
           </div>
         </>
       )}

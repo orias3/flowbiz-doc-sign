@@ -104,9 +104,11 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
   const pages = doc.uploadedPages ? doc.uploadedPages.length : (template ? template.pages : 1);
 
   const renderField = (field) => {
-    // Hide sender's own fields entirely from the client view —
-    // the client only sees the spots that they themselves need to fill.
-    if (field.assignee === "me") return null;
+    // Hide only EMPTY sender fields — the client doesn't need to see
+    // placeholder boxes for the sender. Filled sender signatures/stamps
+    // are shown to the client (locked, read-only) so they can see what
+    // they're signing alongside.
+    if (field.assignee === "me" && !field.value) return null;
 
     const filled = !!field.value;
     const isSystem = field.assignee === "system";
