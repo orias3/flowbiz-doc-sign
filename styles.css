@@ -903,6 +903,99 @@ input, textarea { font-family: inherit; }
 
 .quote-terms { font-size: 10px; color: var(--gray-500); line-height: 1.55; margin-top: 10px; }
 
+/* Bank transfer resolution — page rendering */
+.bt-page { padding: 44px 52px !important; font-size: 13px !important; color: var(--gray-800); }
+.bt-subhead { font-size: 13.5px; color: var(--gray-600); text-align: right; margin: 4px 0 14px; }
+.bt-section-title {
+  font-size: 14px; font-weight: 800; color: var(--blue-900);
+  margin: 18px 0 8px; text-align: right;
+}
+.bt-section-lead { font-size: 12.5px; color: var(--gray-600); margin: 0 0 10px; line-height: 1.5; }
+
+.bt-decision {
+  background: var(--gray-50); border: 1px solid var(--gray-100);
+  border-radius: 14px; padding: 14px 18px;
+  font-size: 13.5px; line-height: 2.0; color: var(--gray-800);
+  text-align: right; margin: 6px 0 14px;
+}
+.bt-fill {
+  display: inline-block;
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  padding: 1px 10px;
+  font-weight: 700;
+  color: var(--blue-900);
+  font-size: 13px;
+  margin: 0 2px;
+  min-width: 36px;
+  text-align: center;
+  vertical-align: baseline;
+}
+.bt-fill-num { font-feature-settings: 'tnum'; direction: ltr; unicode-bidi: isolate; }
+
+.bt-summary {
+  border: 1px solid var(--gray-100); border-radius: 12px; overflow: hidden;
+  margin: 6px 0 12px;
+}
+.bt-summary-row {
+  display: grid; grid-template-columns: 200px 1fr; gap: 0;
+  border-bottom: 1px solid var(--gray-100);
+}
+.bt-summary-row:last-child { border-bottom: 0; }
+.bt-summary-lbl {
+  background: var(--gray-50); padding: 10px 14px;
+  font-size: 12px; color: var(--gray-600); font-weight: 600; text-align: right;
+  border-inline-end: 1px solid var(--gray-100);
+}
+.bt-summary-val {
+  padding: 10px 14px; font-size: 13px; color: var(--gray-800); font-weight: 700; text-align: right;
+}
+
+.bt-signatories { display: flex; flex-direction: column; gap: 14px; margin-top: 8px; }
+.bt-signatory {
+  display: grid; grid-template-columns: 200px 1fr; gap: 16px; align-items: stretch;
+  padding: 14px 0;
+}
+.bt-signatory-info { text-align: right; padding-top: 4px; }
+.bt-signatory-name { font-size: 15px; font-weight: 800; color: var(--blue-900); }
+.bt-signatory-id { font-size: 12px; color: var(--gray-600); margin-top: 2px; }
+.bt-signatory-role {
+  display: inline-block; margin-top: 6px;
+  background: var(--orange-50); color: var(--orange-600);
+  font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 999px;
+}
+.bt-signatory-sig { display: flex; flex-direction: column; justify-content: flex-end; min-height: 110px; }
+.bt-signatory-label { font-size: 11px; color: var(--gray-400); text-align: center; }
+.bt-signatory-line { border-bottom: 1.5px solid var(--gray-300); height: 60px; margin-bottom: 4px; }
+.bt-signatory-cap {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 11px; color: var(--gray-500);
+}
+
+.bt-disclaimer {
+  margin-top: 14px;
+  font-size: 10.5px; color: var(--gray-500); line-height: 1.6;
+  border-top: 1px dashed var(--gray-200); padding-top: 10px;
+}
+
+/* Bank transfer modal — vendor picker */
+.bt-vendor-pick {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  background: var(--blue-50); border: 1px solid var(--blue-100);
+  border-radius: 12px; padding: 10px 12px;
+}
+.bt-vendor-pick select {
+  flex: 1; min-width: 160px;
+  border: 1.5px solid var(--gray-200); border-radius: 10px;
+  padding: 8px 12px; font-size: 13px; outline: none;
+  font-family: inherit; background: #fff;
+}
+.bt-vendor-pick .btn { white-space: nowrap; }
+.bt-vendor-hint {
+  font-size: 11.5px; color: var(--gray-500); margin: -2px 0 4px; line-height: 1.5;
+}
+
 /* Read-only editor (locked doc) — drop the left tools column */
 .editor.editor-readonly { grid-template-columns: 320px 1fr; }
 @media (max-width: 720px) {

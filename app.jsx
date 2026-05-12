@@ -6,6 +6,7 @@ const { useState: useStateA, useEffect: useEffectA, useMemo: useMemoA } = React;
 const STORAGE_KEY = "flowbiz-sign-docs-v1";
 const SIG_KEY = "flowbiz-sign-mysig-v1";
 const SHARED_KEY = "flowbiz-sign-shared-v1"; // map shareToken -> docId
+const VENDORS_KEY = "flowbiz-vendors-v1";
 
 function loadDocs() {
   try {return JSON.parse(localStorage.getItem(STORAGE_KEY)) || null;} catch {return null;}
@@ -15,6 +16,34 @@ function saveDocs(docs) {
 }
 function loadSig() {try {return localStorage.getItem(SIG_KEY);} catch {return null;}}
 function saveSig(s) {try {localStorage.setItem(SIG_KEY, s);} catch {}}
+
+function loadVendors() {
+  try { return JSON.parse(localStorage.getItem(VENDORS_KEY)) || []; } catch { return []; }
+}
+function saveVendors(vendors) {
+  try { localStorage.setItem(VENDORS_KEY, JSON.stringify(vendors)); } catch {}
+}
+
+// Auto-incrementing resolution number per year, based on existing bank-transfer docs
+function nextResolutionNumber(existingDocs) {
+  const year = new Date().getFullYear();
+  let max = 1190;
+  (existingDocs || []).forEach((d) => {
+    if (d.template === "bank_transfer" && d.bankTransferData && d.bankTransferData.resolutionNumber) {
+      const m = String(d.bankTransferData.resolutionNumber).match(/AOT-(\d{4})-(\d+)/i);
+      if (m && m[1] === String(year)) {
+        const n = parseInt(m[2], 10);
+        if (!isNaN(n) && n > max) max = n;
+      }
+    }
+  });
+  return `AOT-${year}-${max + 1}`;
+}
+
+function todayDateString() {
+  const d = new Date();
+  return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
+}
 
 const DEFAULT_DOCS = [
 {
@@ -88,7 +117,7 @@ function sanitizeForCounterparty(doc) {
   };
 }
 
-const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onDelete }) => {
+const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer, onDelete }) => {
   const [drag, setDrag] = useStateA(false);
   const fileRef = React.useRef(null);
   const counts = useMemoA(() => {
@@ -132,6 +161,9 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onDelete }) => {
             <p className="sub">העלה מסמך, סמן איפה לחתום ולהחתים, וקבל קישור לשליחה.</p>
           </div>
           <div className="library-cta">
+            <button className="btn btn-secondary btn-lg" onClick={() => onNewBankTransfer && onNewBankTransfer()}>
+              <Icon name="shield-check" size={16} /> העברה לבנק
+            </button>
             <button className="btn btn-secondary btn-lg" onClick={() => onNewQuote && onNewQuote()}>
               <Icon name="file-plus" size={16} /> הצעת מחיר חדשה
             </button>
@@ -653,6 +685,289 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, defaultClien
 
 };
 
+const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedResolutionNumber }) => {
+  const seedData = () => {
+    const base = window.normalizeBankTransferData ? window.normalizeBankTransferData(initial) : { ...(initial || {}) };
+    if (!base.date) base.date = todayDateString();
+    if (!base.resolutionNumber && !initial) base.resolutionNumber = suggestedResolutionNumber || "";
+    return base;
+  };
+
+  const [data, setData] = useStateA(seedData);
+  const [openSection, setOpenSection] = useStateA("decision");
+  const [vendors, setVendors] = useStateA(() => loadVendors());
+  const [selectedVendorId, setSelectedVendorId] = useStateA("");
+
+  useEffectA(() => {
+    if (open) {
+      const fresh = seedData();
+      setData(fresh);
+      setOpenSection("decision");
+      setVendors(loadVendors());
+      // If editing an existing doc, try to match an existing vendor
+      const match = (loadVendors() || []).find((v) =>
+        v.name === fresh.beneficiaryName &&
+        v.account === fresh.beneficiaryAccount
+      );
+      setSelectedVendorId(match ? match.id : "");
+    }
+  }, [open]);
+
+  const update = (patch) => setData((d) => ({ ...d, ...patch }));
+  const updateRow = (key, i, patch) => setData((d) => ({ ...d, [key]: d[key].map((r, idx) => idx === i ? { ...r, ...patch } : r) }));
+  const removeAt = (key, i) => setData((d) => ({ ...d, [key]: d[key].filter((_, idx) => idx !== i) }));
+  const appendTo = (key, value) => setData((d) => ({ ...d, [key]: [...d[key], value] }));
+
+  const pickVendor = (id) => {
+    setSelectedVendorId(id);
+    if (!id) return;
+    const v = vendors.find((x) => x.id === id);
+    if (!v) return;
+    update({
+      beneficiaryName: v.name || "",
+      beneficiaryBank: v.bank || "",
+      beneficiaryBranch: v.branch || "",
+      beneficiaryAccount: v.account || "",
+      paymentPurpose: v.purpose || data.paymentPurpose,
+    });
+  };
+
+  const persistVendors = (next) => { setVendors(next); saveVendors(next); };
+
+  const saveAsNewVendor = () => {
+    const name = (data.beneficiaryName || "").trim();
+    if (!name) { alert("יש למלא שם מוטב לפני שמירה כספק"); return; }
+    const v = {
+      id: "v-" + genId(),
+      name,
+      bank: data.beneficiaryBank || "",
+      branch: data.beneficiaryBranch || "",
+      account: data.beneficiaryAccount || "",
+      purpose: data.paymentPurpose || "",
+      createdAt: Date.now(),
+    };
+    persistVendors([v, ...vendors]);
+    setSelectedVendorId(v.id);
+  };
+
+  const updateSelectedVendor = () => {
+    if (!selectedVendorId) return;
+    const next = vendors.map((v) => v.id === selectedVendorId ? {
+      ...v,
+      name: (data.beneficiaryName || "").trim(),
+      bank: data.beneficiaryBank || "",
+      branch: data.beneficiaryBranch || "",
+      account: data.beneficiaryAccount || "",
+      purpose: data.paymentPurpose || "",
+    } : v);
+    persistVendors(next);
+  };
+
+  const deleteSelectedVendor = () => {
+    if (!selectedVendorId) return;
+    if (!confirm("למחוק את הספק השמור?")) return;
+    persistVendors(vendors.filter((v) => v.id !== selectedVendorId));
+    setSelectedVendorId("");
+  };
+
+  const autoFillWords = () => {
+    const n = parseInt(String(data.amount).replace(/[^\d]/g, ""), 10);
+    if (!n || isNaN(n)) return;
+    const words = window.numberToHebrewWords ? window.numberToHebrewWords(n) : "";
+    if (words) update({ amountWords: words });
+  };
+
+  const sec = (id, title, opts, children) => (
+    <QuoteFormSection
+      key={id}
+      title={title}
+      toggleable={!!opts.toggleable}
+      included={opts.includedKey ? !!data[opts.includedKey] : true}
+      count={opts.count}
+      isOpen={openSection === id}
+      onToggleOpen={() => setOpenSection(openSection === id ? null : id)}
+      onToggleIncluded={opts.includedKey ? (v) => update({ [opts.includedKey]: v }) : undefined}
+    >
+      {children}
+    </QuoteFormSection>
+  );
+
+  const canSave = (data.beneficiaryName || "").trim().length > 0 && (data.amount || "").toString().trim().length > 0;
+
+  return (
+    <Modal open={open} onClose={onClose} wide
+      title={initial ? "עריכת החלטת העברה" : "החלטת העברה בנקאית חדשה"}
+      subtitle="מלא/י את פרטי ההעברה. אפשר לבחור ספק שמור כדי לטעון את פרטי החשבון בלחיצה אחת.">
+      <div className="qform">
+
+        {sec("decision", "פרטי החלטה", {}, (
+          <>
+            <div className="qgrid">
+              <label className="qfield">
+                <span>מספר החלטה</span>
+                <input value={data.resolutionNumber} onChange={(e) => update({ resolutionNumber: e.target.value })} dir="ltr" placeholder="AOT-2026-1191" />
+              </label>
+              <label className="qfield">
+                <span>תאריך</span>
+                <input value={data.date} onChange={(e) => update({ date: e.target.value })} dir="ltr" placeholder="DD.MM.YYYY" />
+              </label>
+            </div>
+            <label className="qfield">
+              <span>סוג ההעברה</span>
+              <input value={data.type} onChange={(e) => update({ type: e.target.value })} placeholder="העברה חד-פעמית" />
+            </label>
+          </>
+        ))}
+
+        {sec("amount", "סכום", {}, (
+          <>
+            <div className="qgrid">
+              <label className="qfield">
+                <span>סכום (מספר)</span>
+                <input value={data.amount} onChange={(e) => update({ amount: e.target.value })} dir="ltr" placeholder="4720" />
+              </label>
+              <label className="qfield">
+                <span>מטבע</span>
+                <input value={data.currency} onChange={(e) => update({ currency: e.target.value })} />
+              </label>
+            </div>
+            <label className="qfield">
+              <span>סכום במילים</span>
+              <input value={data.amountWords} onChange={(e) => update({ amountWords: e.target.value })} placeholder="ארבעת אלפים ושבע מאות ועשרים" />
+              <button type="button" className="qadd-btn" style={{ alignSelf: "flex-start", marginTop: 6 }} onClick={autoFillWords}>
+                <Icon name="sparkles" size={13} /> השלמה אוטומטית מהמספר
+              </button>
+            </label>
+          </>
+        ))}
+
+        {sec("source", "חשבון החברה (מקור)", {}, (
+          <>
+            <div className="qgrid">
+              <label className="qfield">
+                <span>שם הבנק</span>
+                <input value={data.sourceBank} onChange={(e) => update({ sourceBank: e.target.value })} />
+              </label>
+              <label className="qfield">
+                <span>קוד בנק</span>
+                <input value={data.sourceBankCode} onChange={(e) => update({ sourceBankCode: e.target.value })} dir="ltr" />
+              </label>
+            </div>
+            <div className="qgrid">
+              <label className="qfield">
+                <span>מספר סניף</span>
+                <input value={data.sourceBranchNumber} onChange={(e) => update({ sourceBranchNumber: e.target.value })} dir="ltr" />
+              </label>
+              <label className="qfield">
+                <span>שם סניף</span>
+                <input value={data.sourceBranchName} onChange={(e) => update({ sourceBranchName: e.target.value })} />
+              </label>
+            </div>
+            <label className="qfield">
+              <span>מספר חשבון</span>
+              <input value={data.sourceAccount} onChange={(e) => update({ sourceAccount: e.target.value })} dir="ltr" />
+            </label>
+          </>
+        ))}
+
+        {sec("vendor", "מוטב (ספק)", {}, (
+          <>
+            <div className="bt-vendor-pick">
+              <select value={selectedVendorId} onChange={(e) => pickVendor(e.target.value)}>
+                <option value="">— ספק חדש —</option>
+                {vendors.map((v) => (
+                  <option key={v.id} value={v.id}>{v.name}{v.account ? ` · ${v.account}` : ""}</option>
+                ))}
+              </select>
+              {!selectedVendorId ? (
+                <button type="button" className="btn btn-soft btn-sm" onClick={saveAsNewVendor}>
+                  <Icon name="plus" size={13} /> שמור כספק
+                </button>
+              ) : (
+                <>
+                  <button type="button" className="btn btn-soft btn-sm" onClick={updateSelectedVendor}>
+                    <Icon name="check" size={13} /> עדכן ספק
+                  </button>
+                  <button type="button" className="btn btn-danger-ghost btn-sm" onClick={deleteSelectedVendor}>
+                    <Icon name="trash" size={13} /> מחק
+                  </button>
+                </>
+              )}
+            </div>
+            <p className="bt-vendor-hint">
+              בחירת ספק שמור תטען אוטומטית את שם המוטב, בנק, סניף, חשבון ומטרת תשלום. ניתן לערוך לפני שמירה.
+            </p>
+            <label className="qfield">
+              <span>שם המוטב</span>
+              <input value={data.beneficiaryName} onChange={(e) => update({ beneficiaryName: e.target.value })} placeholder="לדוגמה: רן ברנפלד" />
+            </label>
+            <div className="qgrid">
+              <label className="qfield">
+                <span>שם הבנק של המוטב</span>
+                <input value={data.beneficiaryBank} onChange={(e) => update({ beneficiaryBank: e.target.value })} placeholder="בינלאומי" />
+              </label>
+              <label className="qfield">
+                <span>סניף</span>
+                <input value={data.beneficiaryBranch} onChange={(e) => update({ beneficiaryBranch: e.target.value })} dir="ltr" />
+              </label>
+            </div>
+            <div className="qgrid">
+              <label className="qfield">
+                <span>מספר חשבון</span>
+                <input value={data.beneficiaryAccount} onChange={(e) => update({ beneficiaryAccount: e.target.value })} dir="ltr" />
+              </label>
+              <label className="qfield">
+                <span>מטרת התשלום</span>
+                <input value={data.paymentPurpose} onChange={(e) => update({ paymentPurpose: e.target.value })} placeholder="לדוגמה: שירותי תכנות" />
+              </label>
+            </div>
+          </>
+        ))}
+
+        {sec("signers", "מורשי חתימה", { count: data.signatories.length }, (
+          <>
+            {data.signatories.map((s, i) => (
+              <div key={i} className="qrowblock">
+                <div className="qrowblock-head">
+                  <input value={s.name} onChange={(e) => updateRow("signatories", i, { name: e.target.value })} placeholder="שם מלא" />
+                  <button className="qicon-btn danger" onClick={() => removeAt("signatories", i)} title="מחיקה" disabled={data.signatories.length <= 1}><Icon name="trash" size={13}/></button>
+                </div>
+                <input value={s.id} onChange={(e) => updateRow("signatories", i, { id: e.target.value })} dir="ltr" placeholder="ת.ז" />
+              </div>
+            ))}
+            <button className="qadd-btn" onClick={() => appendTo("signatories", { name: "", id: "" })}>
+              <Icon name="plus" size={13}/> הוסף מורשה חתימה
+            </button>
+          </>
+        ))}
+
+        {sec("summary", "טבלת סיכום", { toggleable: true, includedKey: "showSummary" }, (
+          <p className="bt-vendor-hint">טבלת הסיכום מציגה את הפרטים בצורה מסודרת אחרי טקסט ההחלטה. ניתן להסתיר אם הטקסט בעצמו מספיק.</p>
+        ))}
+
+        {sec("disclaimer", "טקסט תקנון/הערות", { toggleable: true, includedKey: "showDisclaimer" }, (
+          <label className="qfield">
+            <span>הערות בתחתית המסמך</span>
+            <textarea rows={5} value={data.disclaimerText} onChange={(e) => update({ disclaimerText: e.target.value })} />
+          </label>
+        ))}
+
+      </div>
+      <div className="modal-actions">
+        <button className="btn btn-primary" disabled={!canSave} onClick={() => onSubmit({
+          ...data,
+          beneficiaryName: (data.beneficiaryName || "").trim(),
+          amount: String(data.amount || "").trim(),
+          date: (data.date || "").trim() || todayDateString(),
+        })}>
+          <Icon name={initial ? "check" : "file-plus"} size={16} /> {initial ? "שמירה" : "יצירת החלטה"}
+        </button>
+        <button className="btn btn-ghost" onClick={onClose}>ביטול</button>
+      </div>
+    </Modal>
+  );
+};
+
 const App = () => {
   const [docs, setDocs] = useStateA(() => loadDocs() || DEFAULT_DOCS);
   const [mySignature, setMySignature] = useStateA(() => loadSig());
@@ -664,6 +979,8 @@ const App = () => {
   const [toast, setToast] = useStateA("");
   const [quoteFormOpen, setQuoteFormOpen] = useStateA(false);
   const [quoteFormEditingId, setQuoteFormEditingId] = useStateA(null);
+  const [btFormOpen, setBtFormOpen] = useStateA(false);
+  const [btFormEditingId, setBtFormEditingId] = useStateA(null);
   const [sharedDoc, setSharedDoc] = useStateA(null);   // doc fetched from API (client view)
   const [sharedId, setSharedId] = useStateA(null);     // share id of the doc currently open in client view
   const [shareError, setShareError] = useStateA(false);
@@ -845,6 +1162,49 @@ const App = () => {
 
   const openNewQuote = () => { setQuoteFormEditingId(null); setQuoteFormOpen(true); };
   const openEditQuote = () => { if (activeDoc) { setQuoteFormEditingId(activeDoc.id); setQuoteFormOpen(true); } };
+  const openNewBankTransfer = () => { setBtFormEditingId(null); setBtFormOpen(true); };
+  const openEditBankTransfer = () => { if (activeDoc) { setBtFormEditingId(activeDoc.id); setBtFormOpen(true); } };
+
+  const onBankTransferFormSubmit = (data) => {
+    if (btFormEditingId) {
+      const target = docs.find((d) => d.id === btFormEditingId) || (sharedDoc && sharedDoc.id === btFormEditingId ? sharedDoc : null);
+      if (target) {
+        const updated = {
+          ...target,
+          bankTransferData: data,
+          name: `העברה · ${data.beneficiaryName || data.resolutionNumber || "מוטב"}`,
+          counterparty: data.beneficiaryName || "מוטב",
+        };
+        updateDoc(updated);
+        showToast("פרטי ההחלטה עודכנו");
+      }
+    } else {
+      const id = "doc-" + genId();
+      const fields = [
+        { id: "bt-sig1-" + genId(), type: "signature", page: 0, x: 150, y: 735, w: 190, h: 60, assignee: "me", value: mySignature || null },
+        { id: "bt-stamp1-" + genId(), type: "stamp", page: 0, x: 360, y: 720, w: 80, h: 80, assignee: "me", value: "stamp" },
+        { id: "bt-sig2-" + genId(), type: "signature", page: 0, x: 150, y: 855, w: 190, h: 60, assignee: "me", value: null },
+        { id: "bt-stamp2-" + genId(), type: "stamp", page: 0, x: 360, y: 840, w: 80, h: 80, assignee: "me", value: "stamp" },
+      ];
+      const newDoc = {
+        id,
+        name: `העברה · ${data.beneficiaryName || data.resolutionNumber || "מוטב"}`,
+        template: "bank_transfer",
+        counterparty: data.beneficiaryName || "מוטב",
+        status: "draft",
+        createdAt: Date.now(),
+        bankTransferData: data,
+        fields,
+        sender: "איי או טי סטארטפס בע״מ",
+      };
+      setDocs((prev) => [newDoc, ...prev]);
+      setActiveDocId(id);
+      setView("editor");
+      showToast("ההחלטה נוצרה — שדות חתימה הוצבו אוטומטית");
+    }
+    setBtFormOpen(false);
+    setBtFormEditingId(null);
+  };
 
   const onQuoteFormSubmit = (quoteData) => {
     if (quoteFormEditingId) {
@@ -1008,7 +1368,7 @@ const App = () => {
   return (
     <>
       {view === "library" &&
-      <Library docs={docs} onOpen={openDoc} onUpload={newDocFromUpload} onNew={newBlankDoc} onNewQuote={openNewQuote} onDelete={deleteDoc} />
+      <Library docs={docs} onOpen={openDoc} onUpload={newDocFromUpload} onNew={newBlankDoc} onNewQuote={openNewQuote} onNewBankTransfer={openNewBankTransfer} onDelete={deleteDoc} />
       }
 
       {view === "editor" && activeDoc &&
@@ -1047,6 +1407,7 @@ const App = () => {
             onBack={() => { setView("library"); setActiveDocId(null); }}
             onOpenShare={openShare}
             onEditQuote={activeDoc.template === "flowbiz_quote" && !ownerLocked ? openEditQuote : null}
+            onEditBankTransfer={activeDoc.template === "bank_transfer" && !ownerLocked ? openEditBankTransfer : null}
             mySignature={mySignature}
             onNeedSignature={(after) => { setSigAfter(() => after); setSigOpen(true); }}
             viewMode={ownerLocked ? "readonly" : "owner"}
@@ -1126,6 +1487,14 @@ const App = () => {
         onClose={() => { setQuoteFormOpen(false); setQuoteFormEditingId(null); }}
         onSubmit={onQuoteFormSubmit}
         initial={quoteFormEditingId ? (docs.find((d) => d.id === quoteFormEditingId)?.quoteData || null) : null}
+      />
+
+      <BankTransferFormModal
+        open={btFormOpen}
+        onClose={() => { setBtFormOpen(false); setBtFormEditingId(null); }}
+        onSubmit={onBankTransferFormSubmit}
+        initial={btFormEditingId ? (docs.find((d) => d.id === btFormEditingId)?.bankTransferData || null) : null}
+        suggestedResolutionNumber={nextResolutionNumber(docs)}
       />
 
       <Toast message={toast} />

@@ -247,6 +247,93 @@ function interpolate(tpl, vars) {
 window.QUOTE_DEFAULTS = QUOTE_DEFAULTS;
 window.normalizeQuoteData = normalizeQuoteData;
 
+// Hebrew number-to-words (positive integers up to 999,999, masculine for shekels)
+function numberToHebrewWords(n) {
+  n = Math.floor(Math.abs(Number(n) || 0));
+  if (n === 0) return "אפס";
+
+  const ones = ["", "אחד", "שניים", "שלושה", "ארבעה", "חמישה", "שישה", "שבעה", "שמונה", "תשעה"];
+  const onesConstruct = ["", "אחד", "שני", "שלושת", "ארבעת", "חמשת", "ששת", "שבעת", "שמונת", "תשעת"];
+  const teens = ["עשרה", "אחד עשר", "שניים עשר", "שלושה עשר", "ארבעה עשר", "חמישה עשר", "שישה עשר", "שבעה עשר", "שמונה עשר", "תשעה עשר"];
+  const tens = ["", "", "עשרים", "שלושים", "ארבעים", "חמישים", "שישים", "שבעים", "שמונים", "תשעים"];
+  const hundreds = ["", "מאה", "מאתיים", "שלוש מאות", "ארבע מאות", "חמש מאות", "שש מאות", "שבע מאות", "שמונה מאות", "תשע מאות"];
+
+  function under1000(num) {
+    if (num === 0) return "";
+    if (num < 10) return ones[num];
+    if (num < 20) return teens[num - 10];
+    if (num < 100) {
+      const t = Math.floor(num / 10);
+      const o = num % 10;
+      return tens[t] + (o > 0 ? " ו" + ones[o] : "");
+    }
+    const h = Math.floor(num / 100);
+    const r = num % 100;
+    return hundreds[h] + (r > 0 ? " ו" + under1000(r).replace(/^ו/, "") : "");
+  }
+
+  if (n < 1000) return under1000(n);
+
+  const thousands = Math.floor(n / 1000);
+  const rest = n % 1000;
+  let head;
+  if (thousands === 1) head = "אלף";
+  else if (thousands === 2) head = "אלפיים";
+  else if (thousands < 10) head = onesConstruct[thousands] + " אלפים";
+  else head = under1000(thousands) + " אלף";
+
+  return head + (rest > 0 ? " ו" + under1000(rest).replace(/^ו/, "") : "");
+}
+window.numberToHebrewWords = numberToHebrewWords;
+
+// Bank-transfer resolution defaults — pre-filled with the company's account info from the source PDF
+const BANK_TRANSFER_DEFAULTS = {
+  resolutionNumber: "",
+  date: "",
+  type: "העברה חד-פעמית",
+
+  amount: "",
+  amountWords: "",
+  currency: "₪",
+
+  // Source = the company's bank account (constants for this company)
+  sourceBank: "מזרחי טפחות",
+  sourceBankCode: "20",
+  sourceBranchNumber: "572",
+  sourceBranchName: "אופק",
+  sourceAccount: "412900",
+
+  // Beneficiary — filled per transfer
+  beneficiaryName: "",
+  beneficiaryBank: "",
+  beneficiaryBranch: "",
+  beneficiaryAccount: "",
+  paymentPurpose: "",
+
+  // Authorized signatories — defaults from source PDF, editable
+  signatories: [
+    { name: "אורי אשר", id: "318338175" },
+    { name: "עמית בן שמחון", id: "209352269" },
+  ],
+
+  // Section visibility
+  showSummary: true,
+  showDisclaimer: true,
+
+  disclaimerText: "החלטה זו מהווה הרשאה חד-פעמית לביצוע ההעברה הבנקאית המפורטת בלבד, ואינה מהווה ייפוי כח כללי. ההחלטה תקפה רק בנוכחות חתימת כל המורשים הנדרשים כמפורט בתקנון החברה. יש לשמור עותק חתום בתיק החברה.",
+};
+
+function normalizeBankTransferData(b) {
+  const merged = { ...BANK_TRANSFER_DEFAULTS, ...(b || {}) };
+  if (!Array.isArray(merged.signatories) || merged.signatories.length === 0) {
+    merged.signatories = BANK_TRANSFER_DEFAULTS.signatories;
+  }
+  return merged;
+}
+
+window.BANK_TRANSFER_DEFAULTS = BANK_TRANSFER_DEFAULTS;
+window.normalizeBankTransferData = normalizeBankTransferData;
+
 // FlowBiz price quote — fillable template based on the company's standard quote PDF
 DOC_TEMPLATES.flowbiz_quote = {
   name: "הצעת מחיר FlowBiz",
@@ -434,6 +521,131 @@ DOC_TEMPLATES.flowbiz_quote = {
         </div>
         <hr className="quote-hr" />
         {sections}
+      </div>
+    );
+  },
+};
+
+// Bank transfer resolution — single page, signed by 2 authorized signatories
+DOC_TEMPLATES.bank_transfer = {
+  name: "החלטה לאישור העברה בנקאית",
+  category: "החלטה",
+  counterparty: "מוטב",
+  pages: 1,
+  render: (page, doc) => {
+    const b = normalizeBankTransferData(doc && doc.bankTransferData);
+    const amountStr = b.amount ? `${b.amount} ${b.currency}` : "—";
+    const sourceFull = `${b.sourceBank}${b.sourceBankCode ? ` (${b.sourceBankCode})` : ""} · סניף ${b.sourceBranchNumber}${b.sourceBranchName ? ` · ${b.sourceBranchName}` : ""} · ח-ן ${b.sourceAccount}`;
+    const benefAccountFull = `${b.beneficiaryBank ? "בנק " + b.beneficiaryBank : ""}${b.beneficiaryBranch ? " · סניף " + b.beneficiaryBranch : ""} · ח-ן ${b.beneficiaryAccount}`;
+
+    return (
+      <div className="page-content bt-page">
+        <div className="quote-head">
+          <div className="quote-head-info">
+            <div className="quote-head-co">A.O.T STARTAPPS LTD</div>
+            <div className="quote-head-sub">מפעילה את פלטפורמת FlowBiz</div>
+            <div className="quote-head-sub">טל׳ 052-790-6229</div>
+          </div>
+          <img src="assets/logo.png" alt="FlowBiz" className="quote-head-logo" />
+        </div>
+        <hr className="quote-hr" />
+        <div className="quote-eyebrow">החלטת מורשי חתימה · RESOLUTION</div>
+        <h1 className="quote-h1" style={{ marginBottom: 4 }}>החלטה לאישור העברה בנקאית</h1>
+        <div className="bt-subhead">של חברת <strong>A.O.T STARTAPPS LTD</strong></div>
+
+        <div className="quote-info-box">
+          <div className="quote-info-cell">
+            <div className="lbl">מספר החלטה</div>
+            <div className="val" dir="ltr" style={{ textAlign: "right" }}>{b.resolutionNumber || "—"}</div>
+          </div>
+          <div className="quote-info-cell">
+            <div className="lbl">תאריך</div>
+            <div className="val">{b.date || "—"}</div>
+          </div>
+          <div className="quote-info-cell">
+            <div className="lbl">סוג</div>
+            <div className="val">{b.type || "—"}</div>
+          </div>
+        </div>
+
+        <h3 className="bt-section-title">הוחלט כדלקמן:</h3>
+
+        <p className="bt-decision">
+          הוחלט לאשר העברה בנקאית{" "}
+          <span className="bt-fill">{b.type || "—"}</span>{" "}
+          על סך{" "}
+          <span className="bt-fill bt-fill-num">{b.amount || "—"}</span>{" "}
+          {b.currency}{" "}
+          <span className="bt-fill">{b.amountWords || "—"}</span>
+          , מחשבון החברה שמספרו{" "}
+          <span className="bt-fill bt-fill-num">{b.sourceAccount || "—"}</span>{" "}
+          בבנק{" "}
+          <span className="bt-fill">{[b.sourceBank, b.sourceBankCode].filter(Boolean).join(" ") || "—"}</span>
+          , סניף{" "}
+          <span className="bt-fill">{[b.sourceBranchNumber, b.sourceBranchName].filter(Boolean).join(" · ") || "—"}</span>
+          , לטובת{" "}
+          <span className="bt-fill">{b.beneficiaryName || "—"}</span>
+          , בבנק{" "}
+          <span className="bt-fill">{b.beneficiaryBank || "—"}</span>
+          , סניף{" "}
+          <span className="bt-fill bt-fill-num">{b.beneficiaryBranch || "—"}</span>
+          , חשבון{" "}
+          <span className="bt-fill bt-fill-num">{b.beneficiaryAccount || "—"}</span>
+          , עבור{" "}
+          <span className="bt-fill">{b.paymentPurpose || "—"}</span>
+          .
+        </p>
+
+        {b.showSummary && (
+          <div className="bt-summary">
+            <div className="bt-summary-row">
+              <div className="bt-summary-lbl">סכום להעברה</div>
+              <div className="bt-summary-val">{amountStr}</div>
+            </div>
+            <div className="bt-summary-row">
+              <div className="bt-summary-lbl">חשבון מקור</div>
+              <div className="bt-summary-val">{sourceFull}</div>
+            </div>
+            <div className="bt-summary-row">
+              <div className="bt-summary-lbl">מוטב</div>
+              <div className="bt-summary-val">{b.beneficiaryName || "—"}</div>
+            </div>
+            <div className="bt-summary-row">
+              <div className="bt-summary-lbl">חשבון המוטב</div>
+              <div className="bt-summary-val">{benefAccountFull}</div>
+            </div>
+            <div className="bt-summary-row">
+              <div className="bt-summary-lbl">מטרת התשלום</div>
+              <div className="bt-summary-val">{b.paymentPurpose || "—"}</div>
+            </div>
+          </div>
+        )}
+
+        <h3 className="bt-section-title">המורשים לביצוע פעולה זו</h3>
+        <p className="bt-section-lead">החתומים מטה, המורשים מטעם החברה, מאשרים את ההחלטה המפורטת לעיל:</p>
+
+        <div className="bt-signatories">
+          {b.signatories.map((s, i) => (
+            <div key={i} className="bt-signatory">
+              <div className="bt-signatory-info">
+                <div className="bt-signatory-name">{s.name || "—"}</div>
+                <div className="bt-signatory-id">ת.ז {s.id || "—"}</div>
+                <div className="bt-signatory-role">מורשה חתימה</div>
+              </div>
+              <div className="bt-signatory-sig">
+                <div className="bt-signatory-label">חתימה</div>
+                <div className="bt-signatory-line"></div>
+                <div className="bt-signatory-cap">חתימה וחותמת · {b.date || "—"}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {b.showDisclaimer && b.disclaimerText && (
+          <div className="bt-disclaimer">
+            <strong>כללי:</strong> {b.disclaimerText}
+          </div>
+        )}
       </div>
     );
   },
