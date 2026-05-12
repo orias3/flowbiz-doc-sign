@@ -162,6 +162,91 @@ const DOC_TEMPLATES = {
   }
 };
 
+// FlowBiz price quote — defaults shared between the template renderer and the editor form
+const QUOTE_DEFAULTS = {
+  // Client / header
+  clientName: "",
+  businessName: "",
+  quoteDate: "",
+
+  // Pricing block
+  packageName: "פלטפורמת FlowBiz",
+  packageSub: "שלושה חודשים ראשונים · התחייבות מינימלית · ביטול בכל עת",
+  monthlyPrice: "147",
+  fullPrice: "297",
+  savingsText: "חיסכון של 150₪ לחודש",
+  monthsLabel: "לחודש · 3 חודשים ראשונים",
+  pricingFootnote: "לאחר 3 חודשים, המחיר הרגיל הוא {fullPrice} ₪ לחודש. ניתן לבטל בכל שלב ללא קנסות. כל המחירים אינם כוללים מע״מ.",
+
+  // Section visibility
+  showCards: true,
+  showFeatures: true,
+  showAccounting: true,
+  showRefund: true,
+  showContact: true,
+  showTerms: true,
+
+  // What's in the package — 3 cards
+  cards: [
+    { icon: "check-circle", title: "גישה מלאה למערכת FlowBiz" },
+    { icon: "whatsapp", title: "גישה לקבוצת הוואטסאפ" },
+    { icon: "users", title: "פגישה 1:1 עם מנכ״ל FlowBiz" },
+  ],
+
+  // Features grid
+  features: [
+    "אפיון מלא",
+    "התאמה אישית של המערכת",
+    "תכנית עסקית מלאה",
+    "ליווי ראיית חשבון אנושי",
+    "מיתוג",
+    "דף נחיתה בקליק",
+    "שיווק ומכירות",
+    "FlowBiz AI",
+  ],
+
+  // Accounting (page 2)
+  accountingTitle: "ראיית חשבון · אופציונלי",
+  accountingLead: "רכיב נוסף לחבילה, ניתן להוספה בכל שלב. אין התחייבות — ניתן להצטרף או לוותר בהתאם לצורך.",
+  accountingBanner: "אופציונלי · תוספת ✓ כולל ליווי ע״י רו״ח אנושי · ✓ תוכנה לניהול חשבוניות — חינם",
+  accountingRows: [
+    { name: "פתיחת תיק", desc: "חד פעמי, כולל רישום ברשויות המס", descItalic: "", price: "249₪", when: "חד פעמי" },
+    { name: "עוסק פטור — חבילה חודשית", desc: "מתאים למחזור עד התקרה השנתית של עוסק פטור", descItalic: "", price: "179₪ / חודש", when: "חיוב חודשי" },
+    { name: "עוסק מורשה — חבילה חודשית", desc: "כולל דיווחי מע״מ דו-חודשיים וליווי שוטף", descItalic: "", price: "379₪ / חודש", when: "חיוב חודשי" },
+    { name: "דו״ח שנתי", desc: "משלמים רק אם בוחרים בשירות — חיוב יחיד בסוף השנה.", descItalic: "חישוב: 840₪ פחות (מספר החודשים שנותרו עד סוף השנה × 70₪)", price: "עד 840₪", when: "סוף השנה" },
+  ],
+  accountingChecks: ["רו״ח אנושי זמין", "תוכנת חשבוניות חינם", "דיווחים לרשויות", "ייעוץ שוטף"],
+
+  // Refund callout
+  refundTitle: "14 יום להחזר מלא — ללא שאלות",
+  refundBody: "אם תוך 14 יום מתחילת השימוש תחליטו שזה לא בשבילכם — פשוט כתבו לנו ונחזיר את מלוא הסכום.",
+
+  // Contact strip
+  phone: "052-790-6229",
+  email: "a.o.t.startapps@gmail.com",
+  validity: "14 יום ממועד ההצעה",
+
+  // Terms paragraph
+  termsText: "כל המחירים אינם כוללים מע״מ. המחיר המוזל ({monthlyPrice}₪) תקף לשלושה חודשים ראשונים בלבד; החל מהחודש הרביעי יחול מחיר המחירון הרגיל ({fullPrice}₪ לחודש). ניתן לבטל את המנוי בכל עת ללא התחייבות או קנסות. שירותי ראיית החשבון אופציונליים ואינם חלק מחבילת המערכת הבסיסית. אחריות החזר מלא תקפה ל-14 יום מתחילת השימוש הפעיל במערכת.",
+};
+
+function normalizeQuoteData(q) {
+  const merged = { ...QUOTE_DEFAULTS, ...(q || {}) };
+  // Ensure arrays are arrays (in case partial overrides came through)
+  if (!Array.isArray(merged.cards)) merged.cards = QUOTE_DEFAULTS.cards;
+  if (!Array.isArray(merged.features)) merged.features = QUOTE_DEFAULTS.features;
+  if (!Array.isArray(merged.accountingRows)) merged.accountingRows = QUOTE_DEFAULTS.accountingRows;
+  if (!Array.isArray(merged.accountingChecks)) merged.accountingChecks = QUOTE_DEFAULTS.accountingChecks;
+  return merged;
+}
+
+function interpolate(tpl, vars) {
+  return String(tpl || "").replace(/\{(\w+)\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));
+}
+
+window.QUOTE_DEFAULTS = QUOTE_DEFAULTS;
+window.normalizeQuoteData = normalizeQuoteData;
+
 // FlowBiz price quote — fillable template based on the company's standard quote PDF
 DOC_TEMPLATES.flowbiz_quote = {
   name: "הצעת מחיר FlowBiz",
@@ -169,14 +254,13 @@ DOC_TEMPLATES.flowbiz_quote = {
   counterparty: "לקוח חדש",
   pages: 2,
   render: (page, doc) => {
-    const q = (doc && doc.quoteData) || {};
+    const q = normalizeQuoteData(doc && doc.quoteData);
     const clientName = q.clientName || "—";
-    const businessName = q.businessName || clientName || "—";
+    const businessName = q.businessName || q.clientName || "—";
     const quoteDate = q.quoteDate || formatDate();
-    const monthlyPrice = q.monthlyPrice || "147";
-    const fullPrice = q.fullPrice || "297";
-    const phone = q.phone || "052-790-6229";
-    const email = q.email || "a.o.t.startapps@gmail.com";
+    const vars = { monthlyPrice: q.monthlyPrice, fullPrice: q.fullPrice };
+    const pricingFootnote = interpolate(q.pricingFootnote, vars);
+    const termsText = interpolate(q.termsText, vars);
 
     if (page === 0) {
       return (
@@ -185,7 +269,7 @@ DOC_TEMPLATES.flowbiz_quote = {
             <div className="quote-head-info">
               <div className="quote-head-co">A.O.T STARTAPPS LTD</div>
               <div className="quote-head-sub">מפעילה את פלטפורמת FlowBiz</div>
-              <div className="quote-head-sub">טל׳ {phone}</div>
+              <div className="quote-head-sub">טל׳ {q.phone}</div>
             </div>
             <img src="assets/logo.png" alt="FlowBiz" className="quote-head-logo" />
           </div>
@@ -211,47 +295,130 @@ DOC_TEMPLATES.flowbiz_quote = {
             </div>
           </div>
 
-          <h2 className="quote-h2">מה תקבלו בחבילה</h2>
-          <div className="quote-cards">
-            <div className="quote-card">
-              <div className="quote-card-icon"><Icon name="check-circle" size={18} /></div>
-              <div className="quote-card-title">גישה מלאה למערכת FlowBiz</div>
-            </div>
-            <div className="quote-card">
-              <div className="quote-card-icon"><Icon name="whatsapp" size={18} /></div>
-              <div className="quote-card-title">גישה לקבוצת הוואטסאפ</div>
-            </div>
-            <div className="quote-card">
-              <div className="quote-card-icon"><Icon name="users" size={18} /></div>
-              <div className="quote-card-title">פגישה 1:1 עם מנכ״ל FlowBiz</div>
-            </div>
-          </div>
+          {q.showCards && q.cards.length > 0 && (
+            <>
+              <h2 className="quote-h2">מה תקבלו בחבילה</h2>
+              <div className="quote-cards">
+                {q.cards.map((c, i) => (
+                  <div key={i} className="quote-card">
+                    <div className="quote-card-icon"><Icon name={c.icon || "check-circle"} size={18} /></div>
+                    <div className="quote-card-title">{c.title}</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
 
-          <h2 className="quote-h2">חלק מהפיצ׳רים הכלולים במערכת</h2>
-          <div className="quote-features">
-            {["אפיון מלא","התאמה אישית של המערכת","תכנית עסקית מלאה","ליווי ראיית חשבון אנושי","מיתוג","דף נחיתה בקליק","שיווק ומכירות","FlowBiz AI"].map((f) => (
-              <div key={f} className="quote-feature"><Icon name="check" size={13} color="var(--green-600)" /> {f}</div>
-            ))}
-          </div>
+          {q.showFeatures && q.features.length > 0 && (
+            <>
+              <h2 className="quote-h2">חלק מהפיצ׳רים הכלולים במערכת</h2>
+              <div className="quote-features">
+                {q.features.map((f, i) => (
+                  <div key={i} className="quote-feature"><Icon name="check" size={13} color="var(--green-600)" /> {f}</div>
+                ))}
+              </div>
+            </>
+          )}
 
           <div className="quote-price-box">
             <div className="quote-price-pill">מחיר מבצע היכרות</div>
             <div className="quote-price-row">
               <div className="quote-price-left">
-                <div className="quote-price-name">פלטפורמת FlowBiz</div>
-                <div className="quote-price-sub">שלושה חודשים ראשונים · התחייבות מינימלית · ביטול בכל עת</div>
-                <div className="quote-savings">חיסכון של 150₪ לחודש</div>
+                <div className="quote-price-name">{q.packageName}</div>
+                <div className="quote-price-sub">{q.packageSub}</div>
+                {q.savingsText && <div className="quote-savings">{q.savingsText}</div>}
               </div>
               <div className="quote-price-right">
-                <div className="quote-price-old">{fullPrice} ₪ / חודש</div>
-                <div className="quote-price-new">₪{monthlyPrice}</div>
-                <div className="quote-price-cap">לחודש · 3 חודשים ראשונים</div>
+                <div className="quote-price-old">{q.fullPrice} ₪ / חודש</div>
+                <div className="quote-price-new">₪{q.monthlyPrice}</div>
+                <div className="quote-price-cap">{q.monthsLabel}</div>
               </div>
             </div>
-            <div className="quote-price-foot">
-              לאחר 3 חודשים, המחיר הרגיל הוא {fullPrice} ₪ לחודש. ניתן לבטל בכל שלב ללא קנסות. כל המחירים אינם כוללים מע״מ.
-            </div>
+            {pricingFootnote && <div className="quote-price-foot">{pricingFootnote}</div>}
           </div>
+        </div>
+      );
+    }
+
+    // Page 2 — built dynamically from enabled sections
+    const sections = [];
+
+    if (q.showAccounting) {
+      sections.push(
+        <div key="acct">
+          <h2 className="quote-h2" style={{ marginTop: 6 }}>{q.accountingTitle}</h2>
+          {q.accountingLead && <p className="quote-lead-sm">{q.accountingLead}</p>}
+          <div className="quote-acct">
+            {q.accountingBanner && <div className="quote-acct-banner">{q.accountingBanner}</div>}
+            <div className="quote-acct-row quote-acct-cols">
+              <div>רכיב</div>
+              <div>מחיר</div>
+              <div>מועד חיוב</div>
+            </div>
+            {q.accountingRows.map((r, i) => (
+              <div key={i} className="quote-acct-row">
+                <div>
+                  <strong>{r.name}</strong>
+                  {r.desc && <div className="sub">{r.desc}</div>}
+                  {r.descItalic && <div className="sub italic">{r.descItalic}</div>}
+                </div>
+                <div><strong>{r.price}</strong></div>
+                <div>{r.when}</div>
+              </div>
+            ))}
+          </div>
+          {q.accountingChecks.length > 0 && (
+            <div className="quote-checkmarks">
+              {q.accountingChecks.map((c, i) => (
+                <span key={i}><Icon name="check" size={12} color="var(--green-600)" /> {c}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (q.showRefund) {
+      sections.push(
+        <div key="refund" className="quote-refund">
+          <div className="quote-refund-icon"><Icon name="shield-check" size={18} color="#fff" /></div>
+          <div>
+            <div className="quote-refund-title">{q.refundTitle}</div>
+            <div className="quote-refund-body">{q.refundBody}</div>
+          </div>
+        </div>
+      );
+    }
+
+    sections.push(
+      <div key="signoff" className="quote-signoff">
+        <div className="quote-signoff-block">
+          <div className="quote-signoff-label">חתימת הלקוח</div>
+          <div className="quote-signoff-line" />
+          <div className="quote-signoff-cap">שם מלא · תאריך</div>
+        </div>
+        <div className="quote-signoff-block">
+          <div className="quote-signoff-label">חתימת הספק</div>
+          <div className="quote-signoff-line" />
+          <div className="quote-signoff-cap">תאריך · A.O.T STARTAPPS LTD</div>
+        </div>
+      </div>
+    );
+
+    if (q.showContact) {
+      sections.push(
+        <div key="contact" className="quote-contact">
+          <div><div className="lbl">טלפון / וואטסאפ</div><strong>{q.phone}</strong></div>
+          <div><div className="lbl">אימייל</div><strong>{q.email}</strong></div>
+          <div><div className="lbl">תוקף ההצעה</div><strong>{q.validity}</strong></div>
+        </div>
+      );
+    }
+
+    if (q.showTerms && termsText) {
+      sections.push(
+        <div key="terms" className="quote-terms">
+          <strong>תנאי ההצעה:</strong> {termsText}
         </div>
       );
     }
@@ -266,78 +433,7 @@ DOC_TEMPLATES.flowbiz_quote = {
           <img src="assets/logo.png" alt="FlowBiz" className="quote-head-logo" />
         </div>
         <hr className="quote-hr" />
-
-        <h2 className="quote-h2" style={{ marginTop: 6 }}>ראיית חשבון · אופציונלי</h2>
-        <p className="quote-lead-sm">
-          רכיב נוסף לחבילה, ניתן להוספה בכל שלב. אין התחייבות — ניתן להצטרף או לוותר בהתאם לצורך.
-        </p>
-
-        <div className="quote-acct">
-          <div className="quote-acct-banner">אופציונלי · תוספת &nbsp;✓ כולל ליווי ע״י רו״ח אנושי &nbsp;·&nbsp; ✓ תוכנה לניהול חשבוניות — חינם</div>
-          <div className="quote-acct-row quote-acct-cols">
-            <div>רכיב</div>
-            <div>מחיר</div>
-            <div>מועד חיוב</div>
-          </div>
-          <div className="quote-acct-row">
-            <div><strong>פתיחת תיק</strong><div className="sub">חד פעמי, כולל רישום ברשויות המס</div></div>
-            <div><strong>249₪</strong></div>
-            <div>חד פעמי</div>
-          </div>
-          <div className="quote-acct-row">
-            <div><strong>עוסק פטור — חבילה חודשית</strong><div className="sub">מתאים למחזור עד התקרה השנתית של עוסק פטור</div></div>
-            <div><strong>179₪ / חודש</strong></div>
-            <div>חיוב חודשי</div>
-          </div>
-          <div className="quote-acct-row">
-            <div><strong>עוסק מורשה — חבילה חודשית</strong><div className="sub">כולל דיווחי מע״מ דו-חודשיים וליווי שוטף</div></div>
-            <div><strong>379₪ / חודש</strong></div>
-            <div>חיוב חודשי</div>
-          </div>
-          <div className="quote-acct-row">
-            <div><strong>דו״ח שנתי</strong><div className="sub">משלמים רק אם בוחרים בשירות — חיוב יחיד בסוף השנה.</div><div className="sub italic">חישוב: 840₪ פחות (מספר החודשים שנותרו עד סוף השנה × 70₪)</div></div>
-            <div><strong>עד 840₪</strong></div>
-            <div>סוף השנה</div>
-          </div>
-        </div>
-        <div className="quote-checkmarks">
-          {["רו״ח אנושי זמין","תוכנת חשבוניות חינם","דיווחים לרשויות","ייעוץ שוטף"].map((c) => (
-            <span key={c}><Icon name="check" size={12} color="var(--green-600)" /> {c}</span>
-          ))}
-        </div>
-
-        <div className="quote-refund">
-          <div className="quote-refund-icon"><Icon name="shield-check" size={18} color="#fff" /></div>
-          <div>
-            <div className="quote-refund-title">14 יום להחזר מלא — ללא שאלות</div>
-            <div className="quote-refund-body">
-              אם תוך 14 יום מתחילת השימוש תחליטו שזה לא בשבילכם — פשוט כתבו לנו ונחזיר את מלוא הסכום.
-            </div>
-          </div>
-        </div>
-
-        <div className="quote-signoff">
-          <div className="quote-signoff-block">
-            <div className="quote-signoff-label">חתימת הלקוח</div>
-            <div className="quote-signoff-line" />
-            <div className="quote-signoff-cap">שם מלא · תאריך</div>
-          </div>
-          <div className="quote-signoff-block">
-            <div className="quote-signoff-label">חתימת הספק</div>
-            <div className="quote-signoff-line" />
-            <div className="quote-signoff-cap">תאריך · A.O.T STARTAPPS LTD</div>
-          </div>
-        </div>
-
-        <div className="quote-contact">
-          <div><div className="lbl">טלפון / וואטסאפ</div><strong>{phone}</strong></div>
-          <div><div className="lbl">אימייל</div><strong>{email}</strong></div>
-          <div><div className="lbl">תוקף ההצעה</div><strong>14 יום ממועד ההצעה</strong></div>
-        </div>
-
-        <div className="quote-terms">
-          <strong>תנאי ההצעה:</strong> כל המחירים אינם כוללים מע״מ. המחיר המוזל ({monthlyPrice}₪) תקף לשלושה חודשים ראשונים בלבד; החל מהחודש הרביעי יחול מחיר המחירון הרגיל ({fullPrice}₪ לחודש). ניתן לבטל את המנוי בכל עת ללא התחייבות או קנסות. שירותי ראיית החשבון אופציונליים ואינם חלק מחבילת המערכת הבסיסית. אחריות החזר מלא תקפה ל-14 יום מתחילת השימוש הפעיל במערכת.
-        </div>
+        {sections}
       </div>
     );
   },

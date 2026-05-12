@@ -728,18 +728,105 @@ input, textarea { font-family: inherit; }
   .library-cta .btn { width: 100%; justify-content: center; }
 }
 
-/* FlowBiz quote — form modal */
-.quote-form { display: flex; flex-direction: column; gap: 14px; }
-.quote-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.quote-form-row { display: flex; flex-direction: column; gap: 6px; }
-.quote-form-row > span { font-size: 12.5px; font-weight: 700; color: var(--gray-700); }
-.quote-form-row .req { color: var(--red-500); }
-.quote-form-row input {
+/* FlowBiz quote — form modal: accordion sections + inline list editors */
+.qform {
+  display: flex; flex-direction: column; gap: 8px;
+  max-height: 60vh; overflow-y: auto;
+  padding-inline-end: 4px; /* room for scrollbar */
+}
+.qform::-webkit-scrollbar { width: 8px; }
+.qform::-webkit-scrollbar-thumb { background: var(--gray-200); border-radius: 999px; }
+
+.qsec {
+  border: 1.5px solid var(--gray-100); border-radius: 14px;
+  background: #fff; transition: border-color 150ms var(--ease);
+}
+.qsec.open { border-color: var(--blue-200); }
+.qsec.off { background: var(--gray-50); }
+.qsec-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; cursor: pointer; user-select: none;
+}
+.qsec-head:hover { background: var(--gray-50); border-radius: 14px; }
+.qsec.open .qsec-head { border-bottom: 1px solid var(--gray-100); border-radius: 14px 14px 0 0; }
+.qsec-title { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 700; color: var(--blue-900); }
+.qsec.open .qsec-title svg { transform: rotate(-90deg); transition: transform 150ms var(--ease); }
+.qsec-count {
+  background: var(--gray-100); color: var(--gray-600);
+  font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+}
+.qsec-off-pill {
+  background: var(--gray-200); color: var(--gray-600);
+  font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+}
+.qsec-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--gray-600); cursor: pointer;
+}
+.qsec-toggle input { accent-color: var(--blue-500); width: 16px; height: 16px; cursor: pointer; }
+.qsec-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+
+.qfield { display: flex; flex-direction: column; gap: 6px; }
+.qfield > span { font-size: 12px; font-weight: 700; color: var(--gray-700); }
+.qfield .req { color: var(--red-500); }
+.qfield small { font-size: 11px; color: var(--gray-500); }
+.qfield small code {
+  background: var(--gray-100); padding: 1px 6px; border-radius: 6px;
+  font-size: 11px; font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+.qfield input, .qfield textarea, .qfield select,
+.qrow-edit input,
+.qrowblock input, .qrowblock select, .qrowblock textarea {
   border: 1.5px solid var(--gray-200); border-radius: 10px;
-  padding: 10px 12px; font-size: 14px; outline: none;
+  padding: 9px 12px; font-size: 13.5px; outline: none;
   font-family: inherit; background: #fff;
 }
-.quote-form-row input:focus { border-color: var(--blue-400); box-shadow: 0 0 0 3px rgba(27,132,255,.12); }
+.qfield textarea { resize: vertical; min-height: 60px; line-height: 1.5; }
+.qfield input:focus, .qfield textarea:focus, .qfield select:focus,
+.qrow-edit input:focus, .qrowblock input:focus, .qrowblock select:focus, .qrowblock textarea:focus {
+  border-color: var(--blue-400); box-shadow: 0 0 0 3px rgba(27,132,255,.12);
+}
+.qgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.qsubtitle {
+  font-size: 11.5px; font-weight: 700; color: var(--gray-500);
+  text-transform: uppercase; letter-spacing: .04em;
+  margin: 8px 0 -2px;
+}
+
+.qrow-edit { display: flex; gap: 6px; align-items: center; }
+.qrow-edit input { flex: 1; }
+.qrowblock {
+  background: var(--gray-50); border: 1px solid var(--gray-100);
+  border-radius: 12px; padding: 10px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.qrowblock-head { display: flex; gap: 6px; align-items: center; }
+.qrowblock-head input { flex: 1; }
+.qrowblock-head select { flex: 0 0 auto; min-width: 110px; }
+.qicon-btn {
+  width: 32px; height: 32px; border-radius: 10px;
+  background: #fff; border: 1px solid var(--gray-200);
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; color: var(--gray-500); flex-shrink: 0;
+}
+.qicon-btn:hover { color: var(--gray-800); border-color: var(--gray-300); }
+.qicon-btn.danger:hover { color: var(--red-500); border-color: #FCA5A5; background: var(--red-50); }
+.qadd-btn {
+  align-self: flex-start;
+  background: transparent; border: 1.5px dashed var(--blue-200);
+  color: var(--blue-600); font-weight: 700; font-size: 12.5px;
+  padding: 8px 14px; border-radius: 10px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: inherit;
+}
+.qadd-btn:hover { background: var(--blue-50); border-color: var(--blue-400); }
+
+@media (max-width: 720px) {
+  .qgrid { grid-template-columns: 1fr; }
+  .qrowblock-head { flex-wrap: wrap; }
+  .qrowblock-head select { width: 100%; }
+}
 
 /* FlowBiz quote — page rendering */
 .quote-page { padding: 44px 52px !important; font-size: 13px !important; color: var(--gray-800); }
