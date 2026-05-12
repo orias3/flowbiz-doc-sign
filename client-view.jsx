@@ -318,7 +318,7 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
                 >
                   {doc.uploadedPages
                     ? <img src={doc.uploadedPages[pi]} className="page-uploaded" alt="" />
-                    : (template ? template.render(pi) : <div className="page-content"><p>תוכן מסמך</p></div>)
+                    : (template ? template.render(pi, doc) : <div className="page-content"><p>תוכן מסמך</p></div>)
                   }
                   <div className="page-watermark">עמוד {pi + 1} מתוך {pages} · נחתם דרך FlowBiz Sign</div>
                   {doc.fields.filter((f) => f.page === pi).map(renderField)}

@@ -8,7 +8,7 @@ const TOOLS = [
   { id: "text", name: "שם / טקסט", desc: "שורה חופשית", icon: "type", w: 180, h: 32 },
 ];
 
-const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignature, viewMode = "owner", locked = false }) => {
+const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, mySignature, onNeedSignature, viewMode = "owner", locked = false }) => {
   // viewMode: 'owner' (full editor) | 'counterparty' (fills their fields only) | 'readonly' (no editing)
   const isReadOnly = viewMode === "readonly" || locked;
   const [tool, setTool] = useStateE(null);
@@ -300,6 +300,17 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
               </div>
             </div>
 
+            {onEditQuote && (
+              <div className="side-group">
+                <button className="btn btn-secondary" style={{ width: "100%", justifyContent: "center" }} onClick={onEditQuote}>
+                  <Icon name="edit" size={14}/> ערוך פרטי הצעה
+                </button>
+                <p style={{ fontSize: 11.5, color: "var(--gray-500)", margin: "8px 2px 0", lineHeight: 1.5 }}>
+                  שם הלקוח, שם העסק, תאריך ומחירים — מתעדכנים מיד במסמך.
+                </p>
+              </div>
+            )}
+
             <div className="side-group">
               <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }}
                 onClick={onOpenShare}>
@@ -394,7 +405,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
                           <h3 style={{ margin: "12px 0 4px", color: "var(--gray-700)" }}>{doc.uploadedFileName || doc.name}</h3>
                           <p style={{ color: "var(--gray-500)", fontSize: 13, margin: 0 }}>הוסף שדות חתימה במיקומים הרצויים על המסמך.</p>
                         </div></div>
-                      : (template ? template.render(pi) : <div className="page-content"><p>תוכן מסמך</p></div>))
+                      : (template ? template.render(pi, doc) : <div className="page-content"><p>תוכן מסמך</p></div>))
                   }
                   <div className="page-watermark">עמוד {pi + 1} מתוך {pages} · נחתם דרך FlowBiz Sign</div>
                   {doc.fields.filter(f => f.page === pi).map(renderField)}

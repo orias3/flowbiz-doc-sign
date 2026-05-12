@@ -88,7 +88,7 @@ function sanitizeForCounterparty(doc) {
   };
 }
 
-const Library = ({ docs, onOpen, onUpload, onNew, onDelete }) => {
+const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onDelete }) => {
   const [drag, setDrag] = useStateA(false);
   const fileRef = React.useRef(null);
   const counts = useMemoA(() => {
@@ -131,9 +131,14 @@ const Library = ({ docs, onOpen, onUpload, onNew, onDelete }) => {
             <h1>המסמכים שלי</h1>
             <p className="sub">העלה מסמך, סמן איפה לחתום ולהחתים, וקבל קישור לשליחה.</p>
           </div>
-          <button className="btn btn-primary btn-lg" onClick={() => fileRef.current && fileRef.current.click()}>
-            <Icon name="plus" size={16} /> מסמך חדש
-          </button>
+          <div className="library-cta">
+            <button className="btn btn-secondary btn-lg" onClick={() => onNewQuote && onNewQuote()}>
+              <Icon name="file-plus" size={16} /> הצעת מחיר חדשה
+            </button>
+            <button className="btn btn-primary btn-lg" onClick={() => fileRef.current && fileRef.current.click()}>
+              <Icon name="plus" size={16} /> מסמך חדש
+            </button>
+          </div>
           <input type="file" hidden ref={fileRef} accept=".pdf,.png,.jpg,.jpeg,.docx" onChange={(e) => handleFiles(e.target.files)} />
         </div>
 
@@ -224,6 +229,75 @@ const Library = ({ docs, onOpen, onUpload, onNew, onDelete }) => {
 function buildShortUrl(shareId) {
   return `${location.origin}/s/${shareId}`;
 }
+
+// Modal for creating or editing a FlowBiz price quote
+const QuoteFormModal = ({ open, onClose, onSubmit, initial }) => {
+  const today = new Date();
+  const todayStr = `${String(today.getDate()).padStart(2, "0")}.${String(today.getMonth() + 1).padStart(2, "0")}.${today.getFullYear()}`;
+  const [clientName, setClientName] = useStateA(initial?.clientName || "");
+  const [businessName, setBusinessName] = useStateA(initial?.businessName || "");
+  const [quoteDate, setQuoteDate] = useStateA(initial?.quoteDate || todayStr);
+  const [monthlyPrice, setMonthlyPrice] = useStateA(initial?.monthlyPrice || "147");
+  const [fullPrice, setFullPrice] = useStateA(initial?.fullPrice || "297");
+
+  useEffectA(() => {
+    if (!open) return;
+    setClientName(initial?.clientName || "");
+    setBusinessName(initial?.businessName || "");
+    setQuoteDate(initial?.quoteDate || todayStr);
+    setMonthlyPrice(initial?.monthlyPrice || "147");
+    setFullPrice(initial?.fullPrice || "297");
+  }, [open]);
+
+  const canSave = clientName.trim().length > 0;
+
+  return (
+    <Modal open={open} onClose={onClose} wide
+      title={initial ? "עריכת פרטי הצעה" : "הצעת מחיר חדשה"}
+      subtitle="מלא/י את פרטי הלקוח. אפשר לערוך גם אחרי יצירה — וכל פרט שתשנה/י יתעדכן אוטומטית במסמך.">
+      <div className="quote-form">
+        <label className="quote-form-row">
+          <span>שם הלקוח / לקוחה <span className="req">*</span></span>
+          <input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="לדוגמה: אלישבע" autoFocus />
+        </label>
+        <label className="quote-form-row">
+          <span>שם העסק</span>
+          <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="(אם זהה לשם הלקוח אפשר להשאיר ריק)" />
+        </label>
+        <label className="quote-form-row">
+          <span>תאריך הצעה</span>
+          <input value={quoteDate} onChange={(e) => setQuoteDate(e.target.value)} placeholder="DD.MM.YYYY" dir="ltr" />
+        </label>
+        <div className="quote-form-grid">
+          <label className="quote-form-row">
+            <span>מחיר מבצע (₪/חודש)</span>
+            <input value={monthlyPrice} onChange={(e) => setMonthlyPrice(e.target.value)} dir="ltr" />
+          </label>
+          <label className="quote-form-row">
+            <span>מחיר מחירון (₪/חודש)</span>
+            <input value={fullPrice} onChange={(e) => setFullPrice(e.target.value)} dir="ltr" />
+          </label>
+        </div>
+      </div>
+      <div className="modal-actions">
+        <button className="btn btn-primary" disabled={!canSave}
+          onClick={() => {
+            onSubmit({
+              clientName: clientName.trim(),
+              businessName: (businessName.trim() || clientName.trim()),
+              quoteDate: quoteDate.trim() || todayStr,
+              monthlyPrice: monthlyPrice.trim() || "147",
+              fullPrice: fullPrice.trim() || "297",
+            });
+          }}
+        >
+          <Icon name={initial ? "check" : "file-plus"} size={16} /> {initial ? "שמירה" : "יצירת הצעה"}
+        </button>
+        <button className="btn btn-ghost" onClick={onClose}>ביטול</button>
+      </div>
+    </Modal>
+  );
+};
 
 const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, defaultClientEmail }) => {
   const [copied, setCopied] = useStateA(false);
@@ -378,6 +452,8 @@ const App = () => {
   const [sigAfter, setSigAfter] = useStateA(null);
   const [shareOpen, setShareOpen] = useStateA(false);
   const [toast, setToast] = useStateA("");
+  const [quoteFormOpen, setQuoteFormOpen] = useStateA(false);
+  const [quoteFormEditingId, setQuoteFormEditingId] = useStateA(null);
   const [sharedDoc, setSharedDoc] = useStateA(null);   // doc fetched from API (client view)
   const [sharedId, setSharedId] = useStateA(null);     // share id of the doc currently open in client view
   const [shareError, setShareError] = useStateA(false);
@@ -557,6 +633,48 @@ const App = () => {
     setView("editor");
   };
 
+  const openNewQuote = () => { setQuoteFormEditingId(null); setQuoteFormOpen(true); };
+  const openEditQuote = () => { if (activeDoc) { setQuoteFormEditingId(activeDoc.id); setQuoteFormOpen(true); } };
+
+  const onQuoteFormSubmit = (quoteData) => {
+    if (quoteFormEditingId) {
+      // Edit existing quote
+      const target = docs.find((d) => d.id === quoteFormEditingId) || (sharedDoc && sharedDoc.id === quoteFormEditingId ? sharedDoc : null);
+      if (target) {
+        const updated = { ...target, quoteData, name: `הצעת מחיר · ${quoteData.clientName}`, counterparty: quoteData.clientName };
+        updateDoc(updated);
+        showToast("פרטי ההצעה עודכנו");
+      }
+    } else {
+      // Create new quote with pre-placed signature fields on page 2
+      const id = "doc-" + genId();
+      const fields = [
+        { id: "qf-me-sig-" + genId(), type: "signature", page: 1, x: 80, y: 612, w: 200, h: 56, assignee: "me", value: mySignature || null },
+        { id: "qf-me-stamp-" + genId(), type: "stamp", page: 1, x: 285, y: 590, w: 80, h: 80, assignee: "me", value: "stamp" },
+        { id: "qf-them-sig-" + genId(), type: "signature", page: 1, x: 510, y: 612, w: 200, h: 56, assignee: "them", value: null },
+        { id: "qf-them-name-" + genId(), type: "text", page: 1, x: 510, y: 678, w: 200, h: 24, assignee: "them", value: null },
+        { id: "qf-them-date-" + genId(), type: "date", page: 1, x: 510, y: 706, w: 200, h: 24, assignee: "them", value: null },
+      ];
+      const newDoc = {
+        id,
+        name: `הצעת מחיר · ${quoteData.clientName}`,
+        template: "flowbiz_quote",
+        counterparty: quoteData.clientName,
+        status: "draft",
+        createdAt: Date.now(),
+        quoteData,
+        fields,
+        sender: "איי או טי סטארטפס בע״מ",
+      };
+      setDocs((prev) => [newDoc, ...prev]);
+      setActiveDocId(id);
+      setView("editor");
+      showToast("הצעת המחיר נוצרה — שדות חתימה הוצבו אוטומטית");
+    }
+    setQuoteFormOpen(false);
+    setQuoteFormEditingId(null);
+  };
+
   const updateDoc = (next) => {
     if (sharedDoc && next.id === sharedDoc.id) {
       setSharedDoc(next);
@@ -680,7 +798,7 @@ const App = () => {
   return (
     <>
       {view === "library" &&
-      <Library docs={docs} onOpen={openDoc} onUpload={newDocFromUpload} onNew={newBlankDoc} onDelete={deleteDoc} />
+      <Library docs={docs} onOpen={openDoc} onUpload={newDocFromUpload} onNew={newBlankDoc} onNewQuote={openNewQuote} onDelete={deleteDoc} />
       }
 
       {view === "editor" && activeDoc &&
@@ -718,6 +836,7 @@ const App = () => {
             onUpdate={updateDoc}
             onBack={() => { setView("library"); setActiveDocId(null); }}
             onOpenShare={openShare}
+            onEditQuote={activeDoc.template === "flowbiz_quote" && !ownerLocked ? openEditQuote : null}
             mySignature={mySignature}
             onNeedSignature={(after) => { setSigAfter(() => after); setSigOpen(true); }}
             viewMode={ownerLocked ? "readonly" : "owner"}
@@ -791,6 +910,13 @@ const App = () => {
         }}
       />
       
+
+      <QuoteFormModal
+        open={quoteFormOpen}
+        onClose={() => { setQuoteFormOpen(false); setQuoteFormEditingId(null); }}
+        onSubmit={onQuoteFormSubmit}
+        initial={quoteFormEditingId ? (docs.find((d) => d.id === quoteFormEditingId)?.quoteData || null) : null}
+      />
 
       <Toast message={toast} />
     </>);
