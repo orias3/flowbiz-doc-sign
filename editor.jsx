@@ -118,9 +118,24 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
   const fillField = (field, sigOverride) => {
     if (isReadOnly) return;
     if (field.type === "signature") {
-      const sig = sigOverride || mySignature;
-      if (!sig) { onNeedSignature((newSig) => fillField(field, newSig)); return; }
-      updateDoc({ fields: doc.fields.map(f => f.id === field.id ? { ...f, value: sig } : f) });
+      // Explicit signature passed (from picker callback) — apply directly.
+      if (sigOverride) {
+        updateDoc({ fields: doc.fields.map(f => f.id === field.id ? { ...f, value: sigOverride } : f) });
+        return;
+      }
+      // If saved signatures exist, always open the picker so the user can choose.
+      const savedCount = (typeof window !== "undefined" && typeof window.loadSavedSignatures === "function")
+        ? window.loadSavedSignatures().length : 0;
+      if (savedCount > 0) {
+        onNeedSignature((newSig) => fillField(field, newSig), { defaultMode: "auto", updateMain: false });
+        return;
+      }
+      // Otherwise fall back to the user's main signature, or open the pad to create one.
+      if (mySignature) {
+        updateDoc({ fields: doc.fields.map(f => f.id === field.id ? { ...f, value: mySignature } : f) });
+        return;
+      }
+      onNeedSignature((newSig) => fillField(field, newSig));
     } else if (field.type === "stamp") {
       updateDoc({ fields: doc.fields.map(f => f.id === field.id ? { ...f, value: "stamp" } : f) });
     } else if (field.type === "date") {

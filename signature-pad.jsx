@@ -3,8 +3,10 @@ const { useState, useRef, useEffect } = React;
 
 const SIG_FONT_FAMILY = "'Heebo', sans-serif";
 
-const SignaturePad = ({ open, onClose, onSave, defaultName = "", defaultMode = "draw", savedSignatures = [] }) => {
-  const [mode, setMode] = useState(defaultMode); // draw | type | upload | saved
+const SignaturePad = ({ open, onClose, onSave, defaultName = "", defaultMode = "auto", savedSignatures = [] }) => {
+  // mode: draw | type | upload | saved | auto (auto resolves to saved or draw on open)
+  const resolveInitialMode = (m) => m === "auto" ? (savedSignatures.length > 0 ? "saved" : "draw") : m;
+  const [mode, setMode] = useState(() => resolveInitialMode(defaultMode));
   const [typed, setTyped] = useState(defaultName);
   const [uploaded, setUploaded] = useState(null);
   const canvasRef = useRef(null);
@@ -13,8 +15,10 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "", defaultMode = "
   const drawing = useRef(false);
   const last = useRef(null);
 
-  // Reset mode when reopening to whatever the caller requested
-  useEffect(() => { if (open) setMode(defaultMode); }, [open, defaultMode]);
+  // Reset mode when reopening — 'auto' picks saved tab if saved sigs exist, else draw.
+  useEffect(() => {
+    if (open) setMode(resolveInitialMode(defaultMode));
+  }, [open, defaultMode, savedSignatures.length]);
 
   useEffect(() => {
     if (!open || mode !== "draw") return;

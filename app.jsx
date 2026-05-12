@@ -41,6 +41,12 @@ function findSavedSignatureByName(name) {
   return sigs.find((s) => String(s.name || "").trim().toLowerCase() === norm) || null;
 }
 
+// Expose to other scripts (editor, client view) so they can decide whether to
+// open the picker vs. auto-fill mySignature.
+window.loadSavedSignatures = loadSavedSignatures;
+window.saveSavedSignatures = saveSavedSignatures;
+window.findSavedSignatureByName = findSavedSignatureByName;
+
 // Auto-incrementing resolution number per year, based on existing bank-transfer docs
 function nextResolutionNumber(existingDocs) {
   const year = new Date().getFullYear();
@@ -1110,7 +1116,7 @@ const App = () => {
   const [savedSigsOpen, setSavedSigsOpen] = useStateA(false);
   const [savedSigsRefreshKey, setSavedSigsRefreshKey] = useStateA(0);
   const [highlightSigId, setHighlightSigId] = useStateA(null);
-  const [sigDefaultMode, setSigDefaultMode] = useStateA("draw");
+  const [sigDefaultMode, setSigDefaultMode] = useStateA("auto");
   const [sigUpdateMain, setSigUpdateMain] = useStateA(true);
   const [sharedDoc, setSharedDoc] = useStateA(null);   // doc fetched from API (client view)
   const [sharedId, setSharedId] = useStateA(null);     // share id of the doc currently open in client view
@@ -1296,7 +1302,8 @@ const App = () => {
   // opts.updateMain  = whether to also overwrite the user's main mySignature on save
   const requestSignature = (after, opts) => {
     setSigAfter(() => after);
-    setSigDefaultMode((opts && opts.defaultMode) || "draw");
+    // 'auto' lets SignaturePad pick: saved tab if there are saved sigs, else draw
+    setSigDefaultMode((opts && opts.defaultMode) || "auto");
     setSigUpdateMain(opts && opts.updateMain === false ? false : true);
     setSigOpen(true);
   };

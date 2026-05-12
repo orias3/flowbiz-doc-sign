@@ -91,12 +91,22 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
   const fillField = (field, sigOverride, stampOverride) => {
     if (field.assignee !== "them" || isCompleted) return;
     if (field.type === "signature") {
-      const sig = sigOverride || mySignature;
-      if (!sig) {
-        onNeedSignature((newSig) => fillField(field, newSig));
+      if (sigOverride) {
+        updateField(field.id, { value: sigOverride });
         return;
       }
-      updateField(field.id, { value: sig });
+      // If the client has saved signatures on this device, open the picker.
+      const savedCount = (typeof window !== "undefined" && typeof window.loadSavedSignatures === "function")
+        ? window.loadSavedSignatures().length : 0;
+      if (savedCount > 0) {
+        onNeedSignature((newSig) => fillField(field, newSig), { defaultMode: "auto", updateMain: false });
+        return;
+      }
+      if (mySignature) {
+        updateField(field.id, { value: mySignature });
+        return;
+      }
+      onNeedSignature((newSig) => fillField(field, newSig));
     } else if (field.type === "date") {
       updateField(field.id, { value: window.formatDate() });
     } else if (field.type === "text") {
