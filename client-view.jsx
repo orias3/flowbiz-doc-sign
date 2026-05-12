@@ -5,14 +5,15 @@
 
 const { useState: useStateC, useEffect: useEffectC, useRef: useRefC, useMemo: useMemoC } = React;
 
-const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete }) => {
+const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, downloadDoc }) => {
   const template = window.DOC_TEMPLATES[doc.template];
-  const senderName = "איי או טי סטארטפס בע״מ";
+  const senderName = doc.sender || "איי או טי סטארטפס בע״מ";
   const counterpartyName = template?.counterparty || doc.counterparty || "אורח/ת";
 
   const stageRef = useRefC(null);
   const [zoom, setZoom] = useStateC(1);
   const [showSummary, setShowSummary] = useStateC(false);
+  const [showDone, setShowDone] = useStateC(false);
 
   // Fit-to-width
   useEffectC(() => {
@@ -20,7 +21,7 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete })
       const el = stageRef.current;
       if (!el) return;
       const avail = el.clientWidth - 32;
-      const z = Math.max(0.45, Math.min(1.2, avail / 794));
+      const z = Math.max(0.3, Math.min(1.2, avail / 794));
       setZoom(z);
     };
     fit();
@@ -192,17 +193,43 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete })
         </button>
       )}
 
-      <Modal open={showSummary} onClose={() => setShowSummary(false)} title="לאשר ולשלוח חזרה?" subtitle={`המסמך החתום ייסגר וייחתם דיגיטלית. עותק יישלח חזרה אל ${senderName}, ועותק נוסף יישמר אצלך.`}>
+      <Modal open={showSummary} onClose={() => setShowSummary(false)} title="לאשר ולשלוח חזרה?" subtitle={`המסמך החתום יורד אליך כקובץ PDF. אפשר לשלוח אותו חזרה ל-${senderName} ב-WhatsApp או באימייל.`}>
         <div className="cv-summary">
           <div className="cv-summary-row"><Icon name="file-text" size={16} color="var(--blue-600)" /> {doc.name}</div>
           <div className="cv-summary-row"><Icon name="user-check" size={16} color="var(--green-600)" /> {filledCount} שדות מולאו על ידך</div>
           <div className="cv-summary-row"><Icon name="shield-check" size={16} color="var(--blue-600)" /> חתימה מאובטחת וחתומה דיגיטלית</div>
         </div>
         <div className="modal-actions">
-          <button className="btn btn-success" onClick={() => { setShowSummary(false); onComplete && onComplete(); }}>
-            <Icon name="send" size={16} /> אישור ושליחה
+          <button className="btn btn-success" onClick={() => { setShowSummary(false); onComplete && onComplete(); setShowDone(true); }}>
+            <Icon name="check" size={16} /> אישור והורדה
           </button>
           <button className="btn btn-ghost" onClick={() => setShowSummary(false)}>חזרה</button>
+        </div>
+      </Modal>
+
+      <Modal open={showDone} onClose={() => setShowDone(false)} title="המסמך נחתם!" subtitle={`קובץ PDF חתום ירד אליך. כדי לסגור את התהליך, שלח/י אותו חזרה אל ${senderName}.`}>
+        <div className="completion" style={{ padding: "8px 0 18px" }}>
+          <div className="completion-circle"><Icon name="check" size={36} color="#fff" /></div>
+        </div>
+        <div className="share-channels">
+          <button className="channel-btn" onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent("שלום, מצורף המסמך החתום: " + doc.name)}`)}>
+            <div className="channel-icon" style={{ background: "#25D366" }}><Icon name="whatsapp" size={22} color="#fff" /></div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gray-800)" }}>WhatsApp</div>
+          </button>
+          <button className="channel-btn" onClick={() => window.open(`mailto:?subject=${encodeURIComponent("מסמך חתום: " + doc.name)}&body=${encodeURIComponent("שלום,\n\nמצורף בזאת המסמך החתום.\n\nתודה!")}`)}>
+            <div className="channel-icon" style={{ background: "var(--blue-500)" }}><Icon name="mail" size={20} color="#fff" /></div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gray-800)" }}>אימייל</div>
+          </button>
+          <button className="channel-btn" onClick={() => downloadDoc && downloadDoc(doc)}>
+            <div className="channel-icon" style={{ background: "var(--gray-700)" }}><Icon name="download" size={20} color="#fff" /></div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gray-800)" }}>הורדה שוב</div>
+          </button>
+        </div>
+        <p style={{ fontSize: 12, color: "var(--gray-500)", margin: "14px 0 0", textAlign: "center", lineHeight: 1.55 }}>
+          טיפ: צרף/י את הקובץ שירד למחשב/לטלפון להודעה.
+        </p>
+        <div className="modal-actions">
+          <button className="btn btn-ghost" onClick={() => setShowDone(false)}>סגירה</button>
         </div>
       </Modal>
     </div>

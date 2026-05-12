@@ -188,8 +188,8 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
     const fit = () => {
       const el = stageRef.current;
       if (!el) return;
-      const avail = el.clientWidth - 56;
-      const z = Math.max(0.5, Math.min(1, avail / 794));
+      const avail = el.clientWidth - 32;
+      const z = Math.max(0.3, Math.min(1, avail / 794));
       setZoom(z);
     };
     fit();
@@ -305,7 +305,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
           <button className="zoom-btn" onClick={() => {
             const el = stageRef.current;
             if (!el) return;
-            setZoom(Math.max(0.4, Math.min(1, (el.clientWidth - 56) / 794)));
+            setZoom(Math.max(0.3, Math.min(1, (el.clientWidth - 32) / 794)));
           }} title="התאם לרוחב"><Icon name="maximize" size={14}/></button>
         </div>
         <div className="editor-stage-inner">

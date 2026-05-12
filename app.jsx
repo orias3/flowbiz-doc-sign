@@ -186,11 +186,27 @@ const Library = ({ docs, onOpen, onUpload, onNew, onDelete }) => {
 
 };
 
+function buildSignUrl(doc) {
+  const payload = {
+    id: doc.id, name: doc.name, template: doc.template,
+    counterparty: doc.counterparty,
+    uploadedPages: doc.uploadedPages || null,
+    uploadedFileName: doc.uploadedFileName || null,
+    fields: doc.fields || [],
+    sender: "איי או טי סטארטפס בע״מ",
+  };
+  const json = JSON.stringify(payload);
+  const compressed = (window.LZString && window.LZString.compressToEncodedURIComponent)
+    ? window.LZString.compressToEncodedURIComponent(json)
+    : encodeURIComponent(btoa(unescape(encodeURIComponent(json))));
+  return `${location.origin}${location.pathname}#sign=${compressed}`;
+}
+
 const ShareModal = ({ open, onClose, doc, onMarkSent }) => {
   const [copied, setCopied] = useStateA(false);
   if (!doc) return null;
-  const token = doc.shareToken || "";
-  const url = `${location.origin}${location.pathname}#share=${token}`;
+  const url = buildSignUrl(doc);
+  const tooLong = url.length > 7500;
 
   const copy = () => {
     navigator.clipboard.writeText(url);
@@ -226,10 +242,12 @@ const ShareModal = ({ open, onClose, doc, onMarkSent }) => {
         </button>
       </div>
 
-      <div style={{ marginTop: 22, background: "var(--blue-50)", border: "1px solid var(--blue-100)", borderRadius: 14, padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
-        <Icon name="shield-check" size={18} color="var(--blue-600)" />
-        <div style={{ fontSize: 12.5, color: "var(--blue-800)", lineHeight: 1.55 }}>
-          הקישור מוצפן וייחודי לצד השני. אחרי שיחתום/תחתום, תקבל/י עדכון אוטומטי וההיסטוריה תישמר במסמך.
+      <div style={{ marginTop: 22, background: tooLong ? "var(--orange-50)" : "var(--blue-50)", border: "1px solid " + (tooLong ? "var(--orange-100)" : "var(--blue-100)"), borderRadius: 14, padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+        <Icon name={tooLong ? "info" : "shield-check"} size={18} color={tooLong ? "var(--orange-600)" : "var(--blue-600)"} />
+        <div style={{ fontSize: 12.5, color: tooLong ? "var(--orange-600)" : "var(--blue-800)", lineHeight: 1.55 }}>
+          {tooLong
+            ? "המסמך גדול — ייתכן שהקישור יהיה ארוך מדי לחלק מהמערכות (WhatsApp/SMS). מומלץ לשלוח באימייל או להעתיק ידנית."
+            : "המסמך נטמע ישירות בקישור — הצד השני יראה אך ורק את החלון לחתימה, ללא גישה לממשק שלך. אחרי שיחתום, תקבל את העותק החתום חזרה."}
         </div>
       </div>
 
@@ -252,20 +270,47 @@ const App = () => {
   const [sigAfter, setSigAfter] = useStateA(null);
   const [shareOpen, setShareOpen] = useStateA(false);
   const [toast, setToast] = useStateA("");
+  const [sharedDoc, setSharedDoc] = useStateA(null); // doc decoded from URL (cross-device)
+  const [shareError, setShareError] = useStateA(false);
 
   useEffectA(() => {saveDocs(docs);}, [docs]);
   useEffectA(() => {if (mySignature) saveSig(mySignature);}, [mySignature]);
 
-  // URL routing for share links
+  // URL routing for share links — hard-locked: never falls back to library while a share hash is present
   useEffectA(() => {
     const check = () => {
-      const m = location.hash.match(/share=([a-z0-9]+)/i);
-      if (m) {
-        const token = m[1];
-        const d = docs.find((d) => d.shareToken === token);
-        if (d) {setActiveDocId(d.id);setView("counterparty");return;}
+      const signMatch = location.hash.match(/^#sign=(.+)$/);
+      if (signMatch) {
+        try {
+          const raw = signMatch[1];
+          let json = null;
+          if (window.LZString && window.LZString.decompressFromEncodedURIComponent) {
+            json = window.LZString.decompressFromEncodedURIComponent(raw);
+          }
+          if (!json) { json = decodeURIComponent(escape(atob(decodeURIComponent(raw)))); }
+          const decoded = JSON.parse(json);
+          if (!decoded || !decoded.id) throw new Error("invalid payload");
+          setSharedDoc(decoded);
+          setShareError(false);
+          setActiveDocId(null);
+          setView("counterparty");
+        } catch (e) {
+          console.error("share decode failed", e);
+          setSharedDoc(null);
+          setShareError(true);
+          setView("counterparty");
+        }
+        return;
       }
-      if (view === "counterparty") {setView("library");setActiveDocId(null);}
+      const tokenMatch = location.hash.match(/^#share=([a-z0-9]+)$/i);
+      if (tokenMatch) {
+        const d = docs.find((x) => x.shareToken === tokenMatch[1]);
+        if (d) { setSharedDoc(null); setActiveDocId(d.id); setShareError(false); setView("counterparty"); return; }
+        // Token unknown on this device → lock to error, never show library
+        setSharedDoc(null); setShareError(true); setView("counterparty");
+        return;
+      }
+      if (view === "counterparty") { setView("library"); setActiveDocId(null); setSharedDoc(null); setShareError(false); }
     };
     check();
     window.addEventListener("hashchange", check);
@@ -356,10 +401,14 @@ const App = () => {
   };
 
   const updateDoc = (next) => {
+    if (sharedDoc && next.id === sharedDoc.id) {
+      setSharedDoc(next);
+      return;
+    }
     setDocs(docs.map((d) => d.id === next.id ? next : d));
   };
 
-  const activeDoc = docs.find((d) => d.id === activeDocId);
+  const activeDoc = sharedDoc || docs.find((d) => d.id === activeDocId);
 
   const openShare = () => {
     if (!activeDoc) return;
@@ -469,30 +518,31 @@ const App = () => {
         </>
       }
 
-      {view === "counterparty" && activeDoc &&
+      {view === "counterparty" && shareError &&
+        <div className="cv-error-screen">
+          <div className="cv-error-card">
+            <div className="cv-error-icon"><Icon name="info" size={36} color="#fff" /></div>
+            <h2>הקישור אינו תקין או פג תוקפו</h2>
+            <p>נראה שהקישור פגום, חלקי, או שהמסמך כבר אינו זמין. בקש/י קישור חדש מהשולח.</p>
+          </div>
+        </div>
+      }
+
+      {view === "counterparty" && !shareError && activeDoc &&
       <>
           <ClientView
             doc={activeDoc}
             onUpdate={updateDoc}
             mySignature={mySignature}
             onNeedSignature={(after) => { setSigAfter(() => after); setSigOpen(true); }}
-            onComplete={onCounterpartyComplete}
+            onComplete={() => {
+              const completed = { ...activeDoc, status: "completed", completedAt: Date.now() };
+              updateDoc(completed);
+              downloadDoc(completed);
+              showToast("המסמך נחתם — מורד אליך עותק חתום");
+            }}
+            downloadDoc={downloadDoc}
           />
-
-          {activeDoc.status === "completed" &&
-            <Modal open={true} onClose={() => { location.hash = ""; }}>
-              <div className="completion">
-                <div className="completion-circle"><Icon name="check" size={40} color="#fff" /></div>
-                <h2 style={{ margin: 0 }}>תודה, המסמך נחתם!</h2>
-                <p style={{ color: "var(--gray-500)", margin: "8px 0 0", maxWidth: 380 }}>
-                  עותק חתום נשלח אל איי או טי סטארטפס בע״מ ועותק נוסף נשמר אצלך. אפשר לסגור את החלון.
-                </p>
-                <button className="btn btn-secondary" style={{ marginTop: 18 }} onClick={() => { location.hash = ""; }}>
-                  סיום
-                </button>
-              </div>
-            </Modal>
-          }
         </>
       }
 
