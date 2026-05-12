@@ -201,6 +201,9 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
   const uploadedPages = doc.uploadedPages;
   const pages = uploadedPages ? uploadedPages.length : (template ? template.pages : 1);
   const [zoom, setZoom] = useStateE(1);
+  const pageRefsArr = useRefE([]);
+  const [pageHeights, setPageHeights] = useStateE({});
+
   useEffectE(() => {
     const fit = () => {
       const el = stageRef.current;
@@ -213,6 +216,26 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
     window.addEventListener("resize", fit);
     return () => window.removeEventListener("resize", fit);
   }, []);
+
+  // Track each page's natural (unscaled) height so the wrapper can reserve
+  // the right amount of layout space for transform: scale().
+  useEffectE(() => {
+    const observers = [];
+    pageRefsArr.current.forEach((el, pi) => {
+      if (!el) return;
+      const update = () => {
+        const h = Math.max(1123, el.scrollHeight || 0);
+        setPageHeights((prev) => prev[pi] === h ? prev : { ...prev, [pi]: h });
+      };
+      update();
+      if (typeof ResizeObserver !== "undefined") {
+        const ro = new ResizeObserver(update);
+        ro.observe(el);
+        observers.push(ro);
+      }
+    });
+    return () => observers.forEach((o) => o.disconnect());
+  }, [pages, doc.uploadedPages, doc.template]);
 
   const cpStatus = doc.shareToken
     ? (theirFields.length > 0 && theirSigned === theirFields.length ? "completed" : "sent")
@@ -352,27 +375,33 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, mySignature, onNeedSignatu
           }} title="התאם לרוחב"><Icon name="maximize" size={14}/></button>
         </div>
         <div className="editor-stage-inner">
-          {Array.from({ length: pages }).map((_, pi) => (
-            <div key={pi}
-              className={"page " + (tool ? "has-tool" : "")}
-              data-page-idx={pi}
-              style={{ zoom: zoom }}
-              onClick={(e) => handlePageClick(e, pi)}
-            >
-              {uploadedPages
-                ? <img src={uploadedPages[pi]} className="page-uploaded" alt="" />
-                : (doc.template === "uploaded_file"
-                  ? <div className="page-content"><div className="uploaded-placeholder">
-                      <Icon name="file-text" size={48} color="var(--gray-400)" />
-                      <h3 style={{ margin: "12px 0 4px", color: "var(--gray-700)" }}>{doc.uploadedFileName || doc.name}</h3>
-                      <p style={{ color: "var(--gray-500)", fontSize: 13, margin: 0 }}>הוסף שדות חתימה במיקומים הרצויים על המסמך.</p>
-                    </div></div>
-                  : (template ? template.render(pi) : <div className="page-content"><p>תוכן מסמך</p></div>))
-              }
-              <div className="page-watermark">עמוד {pi + 1} מתוך {pages} · נחתם דרך FlowBiz Sign</div>
-              {doc.fields.filter(f => f.page === pi).map(renderField)}
-            </div>
-          ))}
+          {Array.from({ length: pages }).map((_, pi) => {
+            const naturalH = pageHeights[pi] || 1123;
+            return (
+              <div key={pi} className="page-scaler" style={{ width: `${794 * zoom}px`, height: `${naturalH * zoom}px` }}>
+                <div
+                  className={"page " + (tool ? "has-tool" : "")}
+                  data-page-idx={pi}
+                  ref={(el) => { pageRefsArr.current[pi] = el; }}
+                  style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }}
+                  onClick={(e) => handlePageClick(e, pi)}
+                >
+                  {uploadedPages
+                    ? <img src={uploadedPages[pi]} className="page-uploaded" alt="" />
+                    : (doc.template === "uploaded_file"
+                      ? <div className="page-content"><div className="uploaded-placeholder">
+                          <Icon name="file-text" size={48} color="var(--gray-400)" />
+                          <h3 style={{ margin: "12px 0 4px", color: "var(--gray-700)" }}>{doc.uploadedFileName || doc.name}</h3>
+                          <p style={{ color: "var(--gray-500)", fontSize: 13, margin: 0 }}>הוסף שדות חתימה במיקומים הרצויים על המסמך.</p>
+                        </div></div>
+                      : (template ? template.render(pi) : <div className="page-content"><p>תוכן מסמך</p></div>))
+                  }
+                  <div className="page-watermark">עמוד {pi + 1} מתוך {pages} · נחתם דרך FlowBiz Sign</div>
+                  {doc.fields.filter(f => f.page === pi).map(renderField)}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 

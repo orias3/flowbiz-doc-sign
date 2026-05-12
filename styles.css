@@ -202,7 +202,15 @@ input, textarea { font-family: inherit; }
   min-height: 100%;
 }
 
-/* Document page */
+/* Document page — the wrapper holds the scaled layout box, the inner .page is the actual content sized at original A4 dimensions and visually scaled via transform. This avoids the CSS `zoom` property which mispositions absolute children on mobile WebKit. */
+.page-scaler {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: var(--shadow-md);
+  border-radius: 4px;
+  flex-shrink: 0;
+}
 .page {
   width: 794px; min-height: 1123px;
   background: #fff;
@@ -212,6 +220,16 @@ input, textarea { font-family: inherit; }
   overflow: hidden;
   cursor: var(--page-cursor, default);
   flex-shrink: 0;
+}
+.page-scaler .page {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 794px;
+  max-width: none;
+  box-shadow: none;
+  border-radius: 0;
+  flex-shrink: 1;
 }
 .page.has-tool { cursor: crosshair; }
 .page-content {
@@ -440,6 +458,15 @@ input, textarea { font-family: inherit; }
   position: relative; cursor: crosshair;
   height: 200px;
   overflow: hidden;
+  touch-action: none; /* prevent mobile scroll/zoom while drawing */
+  overscroll-behavior: contain;
+  -ms-touch-action: none;
+}
+.sigpad-canvas canvas {
+  touch-action: none;
+  -ms-touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .sigpad-hint {
   position: absolute; inset: 0; pointer-events: none;

@@ -15,7 +15,9 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
 
   const stageRef = useRefC(null);
   const stampInputRef = useRefC(null);
+  const pageRefsArr = useRefC([]);
   const [zoom, setZoom] = useStateC(1);
+  const [pageHeights, setPageHeights] = useStateC({});
   const [showSummary, setShowSummary] = useStateC(false);
   const [showDone, setShowDone] = useStateC(false);
   const [submitting, setSubmitting] = useStateC(false);
@@ -36,6 +38,25 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
     window.addEventListener("resize", fit);
     return () => window.removeEventListener("resize", fit);
   }, []);
+
+  // Measure each page's natural height (for wrappers around transform: scale)
+  useEffectC(() => {
+    const observers = [];
+    pageRefsArr.current.forEach((el, pi) => {
+      if (!el) return;
+      const update = () => {
+        const h = Math.max(1123, el.scrollHeight || 0);
+        setPageHeights((prev) => prev[pi] === h ? prev : { ...prev, [pi]: h });
+      };
+      update();
+      if (typeof ResizeObserver !== "undefined") {
+        const ro = new ResizeObserver(update);
+        ro.observe(el);
+        observers.push(ro);
+      }
+    });
+    return () => observers.forEach((o) => o.disconnect());
+  }, [doc.uploadedPages, doc.template]);
 
   const theirFields = doc.fields.filter((f) => f.assignee === "them");
   const filledCount = theirFields.filter((f) => f.value).length;
@@ -285,16 +306,26 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
         </div>
 
         <div className="cv-stage-inner">
-          {Array.from({ length: pages }).map((_, pi) => (
-            <div key={pi} className="page cv-page" data-page-idx={pi} style={{ zoom: zoom }}>
-              {doc.uploadedPages
-                ? <img src={doc.uploadedPages[pi]} className="page-uploaded" alt="" />
-                : (template ? template.render(pi) : <div className="page-content"><p>תוכן מסמך</p></div>)
-              }
-              <div className="page-watermark">עמוד {pi + 1} מתוך {pages} · נחתם דרך FlowBiz Sign</div>
-              {doc.fields.filter((f) => f.page === pi).map(renderField)}
-            </div>
-          ))}
+          {Array.from({ length: pages }).map((_, pi) => {
+            const naturalH = pageHeights[pi] || 1123;
+            return (
+              <div key={pi} className="page-scaler" style={{ width: `${794 * zoom}px`, height: `${naturalH * zoom}px` }}>
+                <div
+                  className="page cv-page"
+                  data-page-idx={pi}
+                  ref={(el) => { pageRefsArr.current[pi] = el; }}
+                  style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }}
+                >
+                  {doc.uploadedPages
+                    ? <img src={doc.uploadedPages[pi]} className="page-uploaded" alt="" />
+                    : (template ? template.render(pi) : <div className="page-content"><p>תוכן מסמך</p></div>)
+                  }
+                  <div className="page-watermark">עמוד {pi + 1} מתוך {pages} · נחתם דרך FlowBiz Sign</div>
+                  {doc.fields.filter((f) => f.page === pi).map(renderField)}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
