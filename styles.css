@@ -979,6 +979,59 @@ input, textarea { font-family: inherit; }
   border-top: 1px dashed var(--gray-200); padding-top: 10px;
 }
 
+/* Saved signatures library */
+.saved-sigs-list {
+  display: flex; flex-direction: column; gap: 10px;
+  max-height: 50vh; overflow-y: auto; padding-inline-end: 4px;
+}
+.saved-sigs-list::-webkit-scrollbar { width: 8px; }
+.saved-sigs-list::-webkit-scrollbar-thumb { background: var(--gray-200); border-radius: 999px; }
+.saved-sig-item {
+  display: flex; align-items: center; gap: 10px;
+  background: #fff; border: 1.5px solid var(--gray-100); border-radius: 12px;
+  padding: 8px 10px;
+}
+.saved-sig-preview {
+  width: 130px; height: 56px; flex-shrink: 0;
+  background: var(--gray-50); border: 1px solid var(--gray-100); border-radius: 8px;
+  display: grid; place-items: center; overflow: hidden;
+}
+.saved-sig-preview img {
+  max-width: 100%; max-height: 100%; object-fit: contain;
+}
+.saved-sig-name {
+  flex: 1;
+  border: 1.5px solid var(--gray-200); border-radius: 10px;
+  padding: 9px 12px; font-size: 13.5px; outline: none;
+  font-family: inherit; background: #fff;
+}
+.saved-sig-name:focus { border-color: var(--blue-400); box-shadow: 0 0 0 3px rgba(27,132,255,.12); }
+
+.saved-sigs-empty {
+  background: var(--gray-50); border: 1.5px dashed var(--gray-200);
+  border-radius: 14px; padding: 28px 20px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.saved-sigs-empty-circle {
+  width: 56px; height: 56px; border-radius: 999px;
+  background: var(--blue-500); color: #fff;
+  display: grid; place-items: center;
+  box-shadow: var(--shadow-cta);
+}
+
+.bt-sig-match {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--green-50); color: var(--green-700);
+  font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .saved-sig-item { flex-wrap: wrap; }
+  .saved-sig-preview { width: 100%; height: 80px; }
+  .saved-sig-name { width: 100%; }
+}
+
 /* Bank transfer modal — vendor picker */
 .bt-vendor-pick {
   display: flex; gap: 8px; align-items: center; flex-wrap: wrap;

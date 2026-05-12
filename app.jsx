@@ -24,6 +24,23 @@ function saveVendors(vendors) {
   try { localStorage.setItem(VENDORS_KEY, JSON.stringify(vendors)); } catch {}
 }
 
+// Saved signatures library — assign one signature image per named person.
+// Used to auto-fill multi-signatory documents (e.g. bank transfer) without
+// re-drawing every time.
+const SAVED_SIGS_KEY = "flowbiz-saved-signatures-v1";
+function loadSavedSignatures() {
+  try { return JSON.parse(localStorage.getItem(SAVED_SIGS_KEY)) || []; } catch { return []; }
+}
+function saveSavedSignatures(sigs) {
+  try { localStorage.setItem(SAVED_SIGS_KEY, JSON.stringify(sigs)); } catch {}
+}
+function findSavedSignatureByName(name) {
+  const norm = String(name || "").trim().toLowerCase();
+  if (!norm) return null;
+  const sigs = loadSavedSignatures();
+  return sigs.find((s) => String(s.name || "").trim().toLowerCase() === norm) || null;
+}
+
 // Auto-incrementing resolution number per year, based on existing bank-transfer docs
 function nextResolutionNumber(existingDocs) {
   const year = new Date().getFullYear();
@@ -117,7 +134,7 @@ function sanitizeForCounterparty(doc) {
   };
 }
 
-const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer, onDelete }) => {
+const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer, onOpenSavedSigs, onDelete }) => {
   const [drag, setDrag] = useStateA(false);
   const fileRef = React.useRef(null);
   const counts = useMemoA(() => {
@@ -147,7 +164,10 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
             <div className="brand-sub">שולחים, חותמים, מחזירים — בלי מדפסת, בלי סורק.</div>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button className="btn btn-secondary btn-sm" onClick={() => onOpenSavedSigs && onOpenSavedSigs()}>
+            <Icon name="pen-tool" size={14} /> החתימות שלי
+          </button>
           <button className="btn btn-secondary btn-sm">
             <Icon name="user" size={14} /> איי או טי סטארטפס בע״מ
           </button>
@@ -685,7 +705,82 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, defaultClien
 
 };
 
-const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedResolutionNumber }) => {
+const SavedSignaturesModal = ({ open, onClose }) => {
+  const [sigs, setSigs] = useStateA(() => loadSavedSignatures());
+  const fileRef = React.useRef(null);
+
+  useEffectA(() => {
+    if (open) setSigs(loadSavedSignatures());
+  }, [open]);
+
+  const persist = (next) => { setSigs(next); saveSavedSignatures(next); };
+
+  const onUpload = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) { alert("גודל מקסימלי לחתימה: 4MB"); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const fname = (file.name || "חתימה").replace(/\.(png|jpg|jpeg|svg)$/i, "");
+      const fresh = { id: "sig-" + genId(), name: fname, dataUrl: reader.result, createdAt: Date.now() };
+      persist([fresh, ...sigs]);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const updateName = (id, name) => persist(sigs.map((s) => s.id === id ? { ...s, name } : s));
+  const deleteSig = (id) => {
+    if (!confirm("למחוק את החתימה השמורה?")) return;
+    persist(sigs.filter((s) => s.id !== id));
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} wide
+      title="החתימות השמורות שלי"
+      subtitle="העלה קבצי חתימה (PNG עם רקע שקוף הכי טוב), תן/תני לכל אחת שם — והמערכת תשבץ אותן אוטומטית במסמכים לפי שם המורשה (למשל בהחלטות העברה בנקאית).">
+
+      <input ref={fileRef} type="file" hidden accept="image/png,image/jpeg,image/svg+xml" onChange={onUpload} />
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <button className="btn btn-primary btn-sm" onClick={() => fileRef.current && fileRef.current.click()}>
+          <Icon name="upload-cloud" size={14} /> העלאת חתימה חדשה
+        </button>
+        <span style={{ fontSize: 12, color: "var(--gray-500)" }}>{sigs.length} חתימות שמורות</span>
+      </div>
+
+      {sigs.length === 0 ? (
+        <div className="saved-sigs-empty">
+          <div className="saved-sigs-empty-circle"><Icon name="pen-tool" size={28} color="#fff" /></div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--blue-900)", marginTop: 10 }}>אין חתימות שמורות עדיין</div>
+          <div style={{ fontSize: 12.5, color: "var(--gray-500)", marginTop: 4, textAlign: "center", maxWidth: 360 }}>
+            העלה תמונה של חתימה ותן לה את השם של המורשה (לדוגמה "אורי אשר"). פעם הבאה שתיצור החלטה עם המורשה הזה — החתימה תופיע אוטומטית.
+          </div>
+        </div>
+      ) : (
+        <div className="saved-sigs-list">
+          {sigs.map((s) => (
+            <div key={s.id} className="saved-sig-item">
+              <div className="saved-sig-preview"><img src={s.dataUrl} alt={s.name} /></div>
+              <input className="saved-sig-name" value={s.name} onChange={(e) => updateName(s.id, e.target.value)} placeholder="שם המורשה (לדוגמה: אורי אשר)" />
+              <button className="qicon-btn danger" onClick={() => deleteSig(s.id)} title="מחיקה"><Icon name="trash" size={13} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ marginTop: 16, background: "var(--blue-50)", border: "1px solid var(--blue-100)", borderRadius: 12, padding: "10px 12px", fontSize: 12, color: "var(--blue-800)", lineHeight: 1.55 }}>
+        <strong>טיפ:</strong> שם החתימה חייב להיות זהה בדיוק לשם המורשה במסמך כדי שתשובץ אוטומטית. אפשר לערוך את שם החתימה כאן בכל זמן.
+      </div>
+
+      <div className="modal-actions">
+        <button className="btn btn-ghost" onClick={onClose}>סגירה</button>
+      </div>
+    </Modal>
+  );
+};
+
+const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedResolutionNumber, onOpenSavedSigs }) => {
   const seedData = () => {
     const base = window.normalizeBankTransferData ? window.normalizeBankTransferData(initial) : { ...(initial || {}) };
     if (!base.date) base.date = todayDateString();
@@ -926,18 +1021,35 @@ const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedReso
 
         {sec("signers", "מורשי חתימה", { count: data.signatories.length }, (
           <>
-            {data.signatories.map((s, i) => (
-              <div key={i} className="qrowblock">
-                <div className="qrowblock-head">
-                  <input value={s.name} onChange={(e) => updateRow("signatories", i, { name: e.target.value })} placeholder="שם מלא" />
-                  <button className="qicon-btn danger" onClick={() => removeAt("signatories", i)} title="מחיקה" disabled={data.signatories.length <= 1}><Icon name="trash" size={13}/></button>
+            {data.signatories.map((s, i) => {
+              const matched = window.findSavedSignatureByName ? null : null; // resolved at create-time
+              const sigs = (typeof loadSavedSignatures === "function") ? loadSavedSignatures() : [];
+              const norm = String(s.name || "").trim().toLowerCase();
+              const has = sigs.find((x) => String(x.name || "").trim().toLowerCase() === norm);
+              return (
+                <div key={i} className="qrowblock">
+                  <div className="qrowblock-head">
+                    <input value={s.name} onChange={(e) => updateRow("signatories", i, { name: e.target.value })} placeholder="שם מלא" />
+                    {has ? (
+                      <span className="bt-sig-match" title="חתימה שמורה תשובץ אוטומטית"><Icon name="check" size={11} /> חתימה שמורה</span>
+                    ) : null}
+                    <button className="qicon-btn danger" onClick={() => removeAt("signatories", i)} title="מחיקה" disabled={data.signatories.length <= 1}><Icon name="trash" size={13}/></button>
+                  </div>
+                  <input value={s.id} onChange={(e) => updateRow("signatories", i, { id: e.target.value })} dir="ltr" placeholder="ת.ז" />
                 </div>
-                <input value={s.id} onChange={(e) => updateRow("signatories", i, { id: e.target.value })} dir="ltr" placeholder="ת.ז" />
-              </div>
-            ))}
+              );
+            })}
             <button className="qadd-btn" onClick={() => appendTo("signatories", { name: "", id: "" })}>
               <Icon name="plus" size={13}/> הוסף מורשה חתימה
             </button>
+            {onOpenSavedSigs && (
+              <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: "flex-start" }} onClick={onOpenSavedSigs}>
+                <Icon name="pen-tool" size={13}/> נהל חתימות שמורות
+              </button>
+            )}
+            <p className="bt-vendor-hint">
+              חתימות שמורות לפי שם המורשה ייטמעו אוטומטית במסמך החדש. אם אין התאמה — ניתן לחתום ידנית בעורך.
+            </p>
           </>
         ))}
 
@@ -981,6 +1093,7 @@ const App = () => {
   const [quoteFormEditingId, setQuoteFormEditingId] = useStateA(null);
   const [btFormOpen, setBtFormOpen] = useStateA(false);
   const [btFormEditingId, setBtFormEditingId] = useStateA(null);
+  const [savedSigsOpen, setSavedSigsOpen] = useStateA(false);
   const [sharedDoc, setSharedDoc] = useStateA(null);   // doc fetched from API (client view)
   const [sharedId, setSharedId] = useStateA(null);     // share id of the doc currently open in client view
   const [shareError, setShareError] = useStateA(false);
@@ -1180,11 +1293,14 @@ const App = () => {
       }
     } else {
       const id = "doc-" + genId();
+      // Try to auto-fill each signatory's signature from the saved-signatures library by matching name
+      const sig1Match = findSavedSignatureByName(data.signatories && data.signatories[0] && data.signatories[0].name);
+      const sig2Match = findSavedSignatureByName(data.signatories && data.signatories[1] && data.signatories[1].name);
       const fields = [
-        { id: "bt-sig1-" + genId(), type: "signature", page: 0, x: 150, y: 735, w: 190, h: 60, assignee: "me", value: mySignature || null },
-        { id: "bt-stamp1-" + genId(), type: "stamp", page: 0, x: 360, y: 720, w: 80, h: 80, assignee: "me", value: "stamp" },
-        { id: "bt-sig2-" + genId(), type: "signature", page: 0, x: 150, y: 855, w: 190, h: 60, assignee: "me", value: null },
-        { id: "bt-stamp2-" + genId(), type: "stamp", page: 0, x: 360, y: 840, w: 80, h: 80, assignee: "me", value: "stamp" },
+        { id: "bt-sig1-" + genId(), type: "signature", page: 0, x: 150, y: 735, w: 190, h: 60, assignee: "me", value: (sig1Match && sig1Match.dataUrl) || mySignature || null },
+        { id: "bt-sig2-" + genId(), type: "signature", page: 0, x: 150, y: 855, w: 190, h: 60, assignee: "me", value: (sig2Match && sig2Match.dataUrl) || null },
+        // ONE company stamp — placed between the two signatories on the left side
+        { id: "bt-stamp-" + genId(), type: "stamp", page: 0, x: 460, y: 790, w: 90, h: 90, assignee: "me", value: "stamp" },
       ];
       const newDoc = {
         id,
@@ -1368,7 +1484,7 @@ const App = () => {
   return (
     <>
       {view === "library" &&
-      <Library docs={docs} onOpen={openDoc} onUpload={newDocFromUpload} onNew={newBlankDoc} onNewQuote={openNewQuote} onNewBankTransfer={openNewBankTransfer} onDelete={deleteDoc} />
+      <Library docs={docs} onOpen={openDoc} onUpload={newDocFromUpload} onNew={newBlankDoc} onNewQuote={openNewQuote} onNewBankTransfer={openNewBankTransfer} onOpenSavedSigs={() => setSavedSigsOpen(true)} onDelete={deleteDoc} />
       }
 
       {view === "editor" && activeDoc &&
@@ -1495,6 +1611,12 @@ const App = () => {
         onSubmit={onBankTransferFormSubmit}
         initial={btFormEditingId ? (docs.find((d) => d.id === btFormEditingId)?.bankTransferData || null) : null}
         suggestedResolutionNumber={nextResolutionNumber(docs)}
+        onOpenSavedSigs={() => setSavedSigsOpen(true)}
+      />
+
+      <SavedSignaturesModal
+        open={savedSigsOpen}
+        onClose={() => setSavedSigsOpen(false)}
       />
 
       <Toast message={toast} />
