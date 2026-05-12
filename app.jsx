@@ -705,13 +705,13 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, defaultClien
 
 };
 
-const SavedSignaturesModal = ({ open, onClose }) => {
+const SavedSignaturesModal = ({ open, onClose, refreshKey, onDrawNew }) => {
   const [sigs, setSigs] = useStateA(() => loadSavedSignatures());
   const fileRef = React.useRef(null);
 
   useEffectA(() => {
     if (open) setSigs(loadSavedSignatures());
-  }, [open]);
+  }, [open, refreshKey]);
 
   const persist = (next) => { setSigs(next); saveSavedSignatures(next); };
 
@@ -742,10 +742,17 @@ const SavedSignaturesModal = ({ open, onClose }) => {
 
       <input ref={fileRef} type="file" hidden accept="image/png,image/jpeg,image/svg+xml" onChange={onUpload} />
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <button className="btn btn-primary btn-sm" onClick={() => fileRef.current && fileRef.current.click()}>
-          <Icon name="upload-cloud" size={14} /> העלאת חתימה חדשה
-        </button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button className="btn btn-primary btn-sm" onClick={() => fileRef.current && fileRef.current.click()}>
+            <Icon name="upload-cloud" size={14} /> העלאת חתימה
+          </button>
+          {onDrawNew && (
+            <button className="btn btn-secondary btn-sm" onClick={onDrawNew}>
+              <Icon name="pen-tool" size={14} /> ציור חתימה חדשה
+            </button>
+          )}
+        </div>
         <span style={{ fontSize: 12, color: "var(--gray-500)" }}>{sigs.length} חתימות שמורות</span>
       </div>
 
@@ -1021,35 +1028,18 @@ const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedReso
 
         {sec("signers", "מורשי חתימה", { count: data.signatories.length }, (
           <>
-            {data.signatories.map((s, i) => {
-              const matched = window.findSavedSignatureByName ? null : null; // resolved at create-time
-              const sigs = (typeof loadSavedSignatures === "function") ? loadSavedSignatures() : [];
-              const norm = String(s.name || "").trim().toLowerCase();
-              const has = sigs.find((x) => String(x.name || "").trim().toLowerCase() === norm);
-              return (
-                <div key={i} className="qrowblock">
-                  <div className="qrowblock-head">
-                    <input value={s.name} onChange={(e) => updateRow("signatories", i, { name: e.target.value })} placeholder="שם מלא" />
-                    {has ? (
-                      <span className="bt-sig-match" title="חתימה שמורה תשובץ אוטומטית"><Icon name="check" size={11} /> חתימה שמורה</span>
-                    ) : null}
-                    <button className="qicon-btn danger" onClick={() => removeAt("signatories", i)} title="מחיקה" disabled={data.signatories.length <= 1}><Icon name="trash" size={13}/></button>
-                  </div>
-                  <input value={s.id} onChange={(e) => updateRow("signatories", i, { id: e.target.value })} dir="ltr" placeholder="ת.ז" />
+            {data.signatories.map((s, i) => (
+              <div key={i} className="qrowblock">
+                <div className="qrowblock-head">
+                  <input value={s.name} onChange={(e) => updateRow("signatories", i, { name: e.target.value })} placeholder="שם מלא" />
+                  <button className="qicon-btn danger" onClick={() => removeAt("signatories", i)} title="מחיקה" disabled={data.signatories.length <= 1}><Icon name="trash" size={13}/></button>
                 </div>
-              );
-            })}
+                <input value={s.id} onChange={(e) => updateRow("signatories", i, { id: e.target.value })} dir="ltr" placeholder="ת.ז" />
+              </div>
+            ))}
             <button className="qadd-btn" onClick={() => appendTo("signatories", { name: "", id: "" })}>
               <Icon name="plus" size={13}/> הוסף מורשה חתימה
             </button>
-            {onOpenSavedSigs && (
-              <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: "flex-start" }} onClick={onOpenSavedSigs}>
-                <Icon name="pen-tool" size={13}/> נהל חתימות שמורות
-              </button>
-            )}
-            <p className="bt-vendor-hint">
-              חתימות שמורות לפי שם המורשה ייטמעו אוטומטית במסמך החדש. אם אין התאמה — ניתן לחתום ידנית בעורך.
-            </p>
           </>
         ))}
 
@@ -1094,6 +1084,9 @@ const App = () => {
   const [btFormOpen, setBtFormOpen] = useStateA(false);
   const [btFormEditingId, setBtFormEditingId] = useStateA(null);
   const [savedSigsOpen, setSavedSigsOpen] = useStateA(false);
+  const [savedSigsRefreshKey, setSavedSigsRefreshKey] = useStateA(0);
+  const [sigDefaultMode, setSigDefaultMode] = useStateA("draw");
+  const [sigUpdateMain, setSigUpdateMain] = useStateA(true);
   const [sharedDoc, setSharedDoc] = useStateA(null);   // doc fetched from API (client view)
   const [sharedId, setSharedId] = useStateA(null);     // share id of the doc currently open in client view
   const [shareError, setShareError] = useStateA(false);
@@ -1271,6 +1264,27 @@ const App = () => {
     setDocs([newDoc, ...docs]);
     setActiveDocId(id);
     setView("editor");
+  };
+
+  // Centralized signature-request flow used by all editors and the saved-sigs modal.
+  // opts.defaultMode = "draw" | "type" | "upload" | "saved" (which tab opens first)
+  // opts.updateMain  = whether to also overwrite the user's main mySignature on save
+  const requestSignature = (after, opts) => {
+    setSigAfter(() => after);
+    setSigDefaultMode((opts && opts.defaultMode) || "draw");
+    setSigUpdateMain(opts && opts.updateMain === false ? false : true);
+    setSigOpen(true);
+  };
+
+  // "צייר חתימה חדשה" inside SavedSignaturesModal: open SignaturePad in draw mode,
+  // and on save push the result into the saved-signatures library (without touching mySignature).
+  const onSavedSigsDrawNew = () => {
+    requestSignature((dataUrl) => {
+      const fresh = { id: "sig-" + genId(), name: "חתימה חדשה", dataUrl, createdAt: Date.now() };
+      saveSavedSignatures([fresh, ...loadSavedSignatures()]);
+      setSavedSigsRefreshKey((k) => k + 1);
+      showToast("חתימה חדשה נשמרה לספריה");
+    }, { defaultMode: "draw", updateMain: false });
   };
 
   const openNewQuote = () => { setQuoteFormEditingId(null); setQuoteFormOpen(true); };
@@ -1525,7 +1539,7 @@ const App = () => {
             onEditQuote={activeDoc.template === "flowbiz_quote" && !ownerLocked ? openEditQuote : null}
             onEditBankTransfer={activeDoc.template === "bank_transfer" && !ownerLocked ? openEditBankTransfer : null}
             mySignature={mySignature}
-            onNeedSignature={(after) => { setSigAfter(() => after); setSigOpen(true); }}
+            onNeedSignature={(after, opts) => requestSignature(after, opts)}
             viewMode={ownerLocked ? "readonly" : "owner"}
             locked={ownerLocked}
           />
@@ -1560,7 +1574,7 @@ const App = () => {
             doc={activeDoc}
             onUpdate={updateDoc}
             mySignature={mySignature}
-            onNeedSignature={(after) => { setSigAfter(() => after); setSigOpen(true); }}
+            onNeedSignature={(after, opts) => requestSignature(after, opts)}
             onComplete={async () => {
               const completed = await onCounterpartyComplete();
               if (completed) downloadDoc(completed);
@@ -1572,13 +1586,15 @@ const App = () => {
 
       <SignaturePad
         open={sigOpen}
-        onClose={() => {setSigOpen(false);setSigAfter(null);}}
+        onClose={() => { setSigOpen(false); setSigAfter(null); }}
         onSave={(dataUrl) => {
-          setMySignature(dataUrl);
+          if (sigUpdateMain) setMySignature(dataUrl);
           if (sigAfter) sigAfter(dataUrl);
           setSigAfter(null);
         }}
-        defaultName={view === "counterparty" ? "" : "דני"} />
+        defaultName={view === "counterparty" ? "" : "דני"}
+        defaultMode={sigDefaultMode}
+        savedSignatures={loadSavedSignatures()} />
       
 
       <ShareModal
@@ -1617,6 +1633,8 @@ const App = () => {
       <SavedSignaturesModal
         open={savedSigsOpen}
         onClose={() => setSavedSigsOpen(false)}
+        refreshKey={savedSigsRefreshKey}
+        onDrawNew={onSavedSigsDrawNew}
       />
 
       <Toast message={toast} />

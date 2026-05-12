@@ -167,6 +167,14 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
         )}
         {viewMode === "owner" && !isSystem && !isReadOnly && (
           <div className="field-tools">
+            {field.type === "signature" && (
+              <button className="field-tool-btn field-tool-pick" onClick={(e) => {
+                e.stopPropagation();
+                onNeedSignature((newSig) => fillField(field, newSig), { defaultMode: "saved", updateMain: false });
+              }} title="בחירת חתימה שמורה / חדשה">
+                <Icon name="pen-tool" size={13}/>
+              </button>
+            )}
             <button className="field-tool-btn" onClick={(e) => { e.stopPropagation(); deleteField(field.id); }} title="מחיקה">
               <Icon name="trash" size={13}/>
             </button>

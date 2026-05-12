@@ -3,8 +3,8 @@ const { useState, useRef, useEffect } = React;
 
 const SIG_FONT_FAMILY = "'Heebo', sans-serif";
 
-const SignaturePad = ({ open, onClose, onSave, defaultName = "" }) => {
-  const [mode, setMode] = useState("draw"); // draw | type | upload
+const SignaturePad = ({ open, onClose, onSave, defaultName = "", defaultMode = "draw", savedSignatures = [] }) => {
+  const [mode, setMode] = useState(defaultMode); // draw | type | upload | saved
   const [typed, setTyped] = useState(defaultName);
   const [uploaded, setUploaded] = useState(null);
   const canvasRef = useRef(null);
@@ -12,6 +12,9 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "" }) => {
   const [hasStrokes, setHasStrokes] = useState(false);
   const drawing = useRef(false);
   const last = useRef(null);
+
+  // Reset mode when reopening to whatever the caller requested
+  useEffect(() => { if (open) setMode(defaultMode); }, [open, defaultMode]);
 
   useEffect(() => {
     if (!open || mode !== "draw") return;
@@ -145,7 +148,7 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "" }) => {
     onClose();
   };
 
-  const canSave = mode === "draw" ? hasStrokes : mode === "type" ? !!typed.trim() : !!uploaded;
+  const canSave = mode === "draw" ? hasStrokes : mode === "type" ? !!typed.trim() : mode === "upload" ? !!uploaded : false;
 
   return (
     <Modal open={open} onClose={onClose} wide
@@ -156,7 +159,28 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "" }) => {
         <button className={mode === "draw" ? "active" : ""} onClick={() => setMode("draw")}>ציור חופשי</button>
         <button className={mode === "type" ? "active" : ""} onClick={() => setMode("type")}>הקלדת שם</button>
         <button className={mode === "upload" ? "active" : ""} onClick={() => setMode("upload")}>העלאה מקובץ</button>
+        <button className={mode === "saved" ? "active" : ""} onClick={() => setMode("saved")}>שמורות{savedSignatures.length > 0 ? ` (${savedSignatures.length})` : ""}</button>
       </div>
+
+      {mode === "saved" && (
+        savedSignatures.length === 0 ? (
+          <div className="sigpad-saved-empty">
+            <div style={{ fontSize: 14, color: "var(--gray-600)", textAlign: "center", lineHeight: 1.6 }}>
+              אין חתימות שמורות עדיין.<br/>
+              עבור/עברי לטאב "ציור חופשי" / "העלאה מקובץ" כדי ליצור את הראשונה — היא תופיע כאן בפעם הבאה.
+            </div>
+          </div>
+        ) : (
+          <div className="sigpad-saved-grid">
+            {savedSignatures.map((s) => (
+              <button key={s.id} type="button" className="sigpad-saved-card" onClick={() => { onSave(s.dataUrl); onClose(); }}>
+                <div className="sigpad-saved-img"><img src={s.dataUrl} alt={s.name}/></div>
+                <div className="sigpad-saved-name">{s.name || "ללא שם"}</div>
+              </button>
+            ))}
+          </div>
+        )
+      )}
 
       {mode === "draw" && (
         <>
