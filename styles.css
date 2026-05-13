@@ -979,6 +979,65 @@ input, textarea { font-family: inherit; }
   border-top: 1px dashed var(--gray-200); padding-top: 10px;
 }
 
+/* Login screen + admin badge */
+.login-scrim {
+  position: fixed; inset: 0; z-index: 1000;
+  background: var(--grad-page);
+  display: grid; place-items: center; padding: 24px;
+  font-family: 'Heebo', sans-serif; direction: rtl;
+}
+.login-card {
+  background: #fff; border-radius: 24px; padding: 36px 32px;
+  width: min(420px, 100%);
+  box-shadow: var(--shadow-lg); border: 1px solid var(--gray-100);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.login-card h2 { margin: 0; font-size: 22px; color: var(--blue-900); font-weight: 800; }
+.login-card > p { margin: 0 0 8px; font-size: 13.5px; color: var(--gray-500); line-height: 1.55; }
+.login-logo { height: 44px; width: auto; object-fit: contain; margin-bottom: 4px; align-self: flex-start; }
+.login-field { display: flex; flex-direction: column; gap: 6px; }
+.login-field span { font-size: 12.5px; font-weight: 700; color: var(--gray-700); }
+.login-field input {
+  border: 1.5px solid var(--gray-200); border-radius: 12px;
+  padding: 11px 14px; font-size: 14px; outline: none;
+  font-family: inherit; background: #fff;
+}
+.login-field input:focus {
+  border-color: var(--blue-400); box-shadow: 0 0 0 3px rgba(27,132,255,.12);
+}
+.login-err {
+  background: var(--red-50); color: var(--red-600);
+  border: 1px solid #FCA5A5; border-radius: 10px;
+  padding: 8px 12px; font-size: 12.5px; display: flex; gap: 6px; align-items: center;
+}
+.login-foot {
+  margin: 14px 0 0; font-size: 11.5px; color: var(--gray-400) !important; text-align: center;
+}
+
+.admin-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--green-50);
+  padding: 5px 6px 5px 12px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; border: 1px solid var(--green-100);
+}
+.admin-badge-email {
+  font-size: 11.5px; color: var(--green-700);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.admin-logout-btn {
+  width: 22px; height: 22px; border-radius: 999px;
+  background: var(--green-100); color: var(--green-700); border: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; padding: 0;
+  transition: all 150ms var(--ease);
+}
+.admin-logout-btn:hover { background: var(--red-50); color: var(--red-600); }
+
+@media (max-width: 720px) {
+  .admin-badge-email { max-width: 110px; }
+}
+
 /* SignaturePad — saved tab grid */
 .sigpad-saved-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

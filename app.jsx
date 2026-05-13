@@ -47,6 +47,50 @@ window.loadSavedSignatures = loadSavedSignatures;
 window.saveSavedSignatures = saveSavedSignatures;
 window.findSavedSignatureByName = findSavedSignatureByName;
 
+// ── Admin auth + cross-device sync ─────────────────────────────────────────
+// Two pre-shared admin credentials. Both see and edit the same docs library,
+// vendors list, and saved signatures via the /api/admin/state endpoint.
+const ADMIN_AUTH_KEY = "flowbiz-admin-auth-v1";
+const ADMIN_USERS = [
+  { email: "orias3@gmail.com", pwd: "FlowBiz517268330" },
+  { email: "amitbens97@gmail.com", pwd: "FlowBiz517268330" },
+];
+
+function loadAdminAuth() {
+  try {
+    const data = JSON.parse(localStorage.getItem(ADMIN_AUTH_KEY));
+    if (data && data.email && data.basicAuth) return data;
+  } catch {}
+  return null;
+}
+function saveAdminAuth(auth) {
+  try { localStorage.setItem(ADMIN_AUTH_KEY, JSON.stringify(auth)); } catch {}
+}
+function clearAdminAuth() {
+  try { localStorage.removeItem(ADMIN_AUTH_KEY); } catch {}
+}
+
+async function apiAdminStateGet(auth) {
+  const r = await fetch("/api/admin/state", {
+    headers: { "Authorization": auth.basicAuth },
+    cache: "no-store",
+  });
+  if (r.status === 401) return { unauthorized: true };
+  if (!r.ok) throw new Error("get_failed:" + r.status);
+  return r.json();
+}
+
+async function apiAdminStatePut(state, auth) {
+  const r = await fetch("/api/admin/state", {
+    method: "PUT",
+    headers: { "Authorization": auth.basicAuth, "Content-Type": "application/json" },
+    body: JSON.stringify(state),
+  });
+  if (r.status === 401) return { unauthorized: true };
+  if (!r.ok) throw new Error("put_failed:" + r.status);
+  return r.json();
+}
+
 // Auto-incrementing resolution number per year, based on existing bank-transfer docs
 function nextResolutionNumber(existingDocs) {
   const year = new Date().getFullYear();
@@ -140,7 +184,7 @@ function sanitizeForCounterparty(doc) {
   };
 }
 
-const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer, onOpenSavedSigs, onDelete }) => {
+const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer, onOpenSavedSigs, onDelete, adminEmail, onLogout }) => {
   const [drag, setDrag] = useStateA(false);
   const fileRef = React.useRef(null);
   const counts = useMemoA(() => {
@@ -170,13 +214,21 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
             <div className="brand-sub">שולחים, חותמים, מחזירים — בלי מדפסת, בלי סורק.</div>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <button className="btn btn-secondary btn-sm" onClick={() => onOpenSavedSigs && onOpenSavedSigs()}>
             <Icon name="pen-tool" size={14} /> החתימות שלי
           </button>
-          <button className="btn btn-secondary btn-sm">
-            <Icon name="user" size={14} /> איי או טי סטארטפס בע״מ
-          </button>
+          {adminEmail ? (
+            <div className="admin-badge">
+              <Icon name="shield-check" size={13} color="var(--green-600)" />
+              <span className="admin-badge-email" dir="ltr">{adminEmail}</span>
+              <button className="admin-logout-btn" onClick={onLogout} title="התנתקות"><Icon name="x" size={12} /></button>
+            </div>
+          ) : (
+            <button className="btn btn-secondary btn-sm">
+              <Icon name="user" size={14} /> איי או טי סטארטפס בע״מ
+            </button>
+          )}
         </div>
       </div>
 
@@ -817,7 +869,7 @@ const SavedSignaturesModal = ({ open, onClose, refreshKey, onDrawNew, highlightI
   );
 };
 
-const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedResolutionNumber, onOpenSavedSigs }) => {
+const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedResolutionNumber, onOpenSavedSigs, onVendorsChanged }) => {
   const seedData = () => {
     const base = window.normalizeBankTransferData ? window.normalizeBankTransferData(initial) : { ...(initial || {}) };
     if (!base.date) base.date = todayDateString();
@@ -864,7 +916,7 @@ const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedReso
     });
   };
 
-  const persistVendors = (next) => { setVendors(next); saveVendors(next); };
+  const persistVendors = (next) => { setVendors(next); saveVendors(next); if (onVendorsChanged) onVendorsChanged(); };
 
   const saveAsNewVendor = () => {
     const name = (data.beneficiaryName || "").trim();
@@ -1100,6 +1152,56 @@ const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedReso
   );
 };
 
+const LoginModal = ({ open, onLogin }) => {
+  const [email, setEmail] = useStateA("");
+  const [pwd, setPwd] = useStateA("");
+  const [err, setErr] = useStateA("");
+  const [busy, setBusy] = useStateA(false);
+
+  if (!open) return null;
+
+  const submit = async () => {
+    setErr("");
+    const e = email.trim().toLowerCase();
+    const match = ADMIN_USERS.find((u) => u.email === e && u.pwd === pwd);
+    if (!match) { setErr("אימייל או סיסמה שגויים"); return; }
+    const basicAuth = "Basic " + btoa(unescape(encodeURIComponent(`${match.email}:${match.pwd}`)));
+    setBusy(true);
+    try {
+      const r = await fetch("/api/admin/state", { headers: { "Authorization": basicAuth }, cache: "no-store" });
+      if (r.status === 401) { setErr("הסיסמה אומתה מקומית אך השרת דחה — נסה/י שוב"); return; }
+      onLogin({ email: match.email, basicAuth, loggedInAt: Date.now() });
+    } catch (ex) {
+      setErr("שגיאת תקשורת — נסה/י שוב");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="login-scrim">
+      <div className="login-card">
+        <img src="/assets/logo.png" alt="FlowBiz" className="login-logo" onError={(e) => (e.target.style.display = "none")} />
+        <h2>FlowBiz Sign · ניהול</h2>
+        <p>גישה מנהלית בלבד. כניסה תיתן לך גישה לכל המסמכים, החתימות והספקים — מסונכרן בין כל המנהלים.</p>
+        <label className="login-field">
+          <span>אימייל</span>
+          <input type="email" dir="ltr" autoComplete="email" value={email} onChange={(ev) => setEmail(ev.target.value)} placeholder="orias3@gmail.com" autoFocus />
+        </label>
+        <label className="login-field">
+          <span>סיסמה</span>
+          <input type="password" dir="ltr" autoComplete="current-password" value={pwd} onChange={(ev) => setPwd(ev.target.value)} onKeyDown={(ev) => ev.key === "Enter" && submit()} placeholder="••••••••" />
+        </label>
+        {err && <div className="login-err"><Icon name="info" size={14} /> {err}</div>}
+        <button className="btn btn-primary" disabled={busy || !email || !pwd} onClick={submit} style={{ width: "100%", justifyContent: "center", marginTop: 6 }}>
+          <Icon name={busy ? "clock" : "shield-check"} size={16} /> {busy ? "מאמת..." : "כניסה"}
+        </button>
+        <p className="login-foot">חיבור מאובטח · המסמכים נשמרים בענן ומסונכרנים בין מנהלים</p>
+      </div>
+    </div>
+  );
+};
+
 const App = () => {
   const [docs, setDocs] = useStateA(() => loadDocs() || DEFAULT_DOCS);
   const [mySignature, setMySignature] = useStateA(() => loadSig());
@@ -1122,9 +1224,101 @@ const App = () => {
   const [sharedId, setSharedId] = useStateA(null);     // share id of the doc currently open in client view
   const [shareError, setShareError] = useStateA(false);
   const [shareLoading, setShareLoading] = useStateA(false);
+  // Admin auth + sync state
+  const [adminAuth, setAdminAuth] = useStateA(() => loadAdminAuth());
+  const [bootingAdmin, setBootingAdmin] = useStateA(false);
+  const [vendorBump, setVendorBump] = useStateA(0);
+  const isClientRoute = (typeof window !== "undefined") && /^\/s\//i.test(window.location.pathname);
+  const requiresAuth = !isClientRoute;
 
   useEffectA(() => {saveDocs(docs);}, [docs]);
   useEffectA(() => {if (mySignature) saveSig(mySignature);}, [mySignature]);
+
+  // Refs used by the admin sync logic
+  const docsRef = React.useRef(docs);
+  useEffectA(() => { docsRef.current = docs; }, [docs]);
+  const lastPullTsRef = React.useRef(0);
+  const pushTimerRef = React.useRef(null);
+  const isApplyingRemoteRef = React.useRef(false);
+
+  // Triggered by any local change worth syncing (docs, vendors, saved sigs).
+  // Suppressed if we just pulled — avoids ping-pong.
+  const requestAdminSync = React.useCallback(() => {
+    if (!adminAuth) return;
+    if (Date.now() - lastPullTsRef.current < 1500) return;
+    if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+    pushTimerRef.current = setTimeout(async () => {
+      if (!adminAuth) return;
+      try {
+        const res = await apiAdminStatePut({
+          docs: docsRef.current,
+          vendors: loadVendors(),
+          savedSignatures: loadSavedSignatures(),
+        }, adminAuth);
+        if (res && res.unauthorized) { clearAdminAuth(); setAdminAuth(null); }
+      } catch (e) {
+        console.error("admin push failed", e);
+      }
+    }, 1500);
+  }, [adminAuth]);
+
+  // Pull state from server, replace local store. Used on login + on focus.
+  const pullAdminState = React.useCallback(async () => {
+    if (!adminAuth) return;
+    try {
+      const state = await apiAdminStateGet(adminAuth);
+      if (!state || state.unauthorized) {
+        clearAdminAuth(); setAdminAuth(null);
+        return;
+      }
+      isApplyingRemoteRef.current = true;
+      lastPullTsRef.current = Date.now();
+
+      const remoteExists = state._meta && state._meta.exists;
+      if (remoteExists) {
+        if (Array.isArray(state.docs)) setDocs(state.docs);
+        if (Array.isArray(state.savedSignatures)) saveSavedSignatures(state.savedSignatures);
+        if (Array.isArray(state.vendors)) saveVendors(state.vendors);
+        setSavedSigsRefreshKey((k) => k + 1);
+        setVendorBump((v) => v + 1);
+      } else {
+        // First-time seed: push whatever this admin already has locally so the
+        // other admin will see the same on first login.
+        try {
+          await apiAdminStatePut({
+            docs: docsRef.current,
+            savedSignatures: loadSavedSignatures(),
+            vendors: loadVendors(),
+          }, adminAuth);
+        } catch (e) { console.error("admin seed failed", e); }
+      }
+      setTimeout(() => { isApplyingRemoteRef.current = false; }, 200);
+    } catch (e) {
+      console.error("admin pull failed", e);
+    }
+  }, [adminAuth]);
+
+  // On login, pull once
+  useEffectA(() => {
+    if (!adminAuth) return;
+    setBootingAdmin(true);
+    pullAdminState().finally(() => setBootingAdmin(false));
+  }, [adminAuth]);
+
+  // Pull on window focus
+  useEffectA(() => {
+    if (!adminAuth) return;
+    const onFocus = () => pullAdminState();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [adminAuth, pullAdminState]);
+
+  // Push on docs / vendor / saved-sigs changes
+  useEffectA(() => {
+    if (!adminAuth) return;
+    if (isApplyingRemoteRef.current) return;
+    requestAdminSync();
+  }, [docs, savedSigsRefreshKey, vendorBump, adminAuth, requestAdminSync]);
 
   // URL routing — /s/<id> path is hard-locked to the client signing view.
   useEffectA(() => {
@@ -1436,62 +1630,83 @@ const App = () => {
     if (!d) return;
     showToast("מכין הורדה...");
     const PW = 794, PH = 1123;
-    const loadImg = (src) => new Promise((res, rej) => {
-      const i = new Image(); i.crossOrigin = "anonymous";
-      i.onload = () => res(i); i.onerror = rej; i.src = src;
-    });
+    if (typeof window.html2canvas !== "function") {
+      showToast("שגיאה — html2canvas לא נטען");
+      return;
+    }
     try {
       const jsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
       const pdf = new jsPDFCtor({ unit: "px", format: [PW, PH], hotfixes: ["px_scaling"] });
-      const pageCount = d.uploadedPages ? d.uploadedPages.length : 1;
-      const stampImg = await loadImg("assets/stamp.png").catch(() => null);
 
-      for (let pi = 0; pi < pageCount; pi++) {
-        const c = document.createElement("canvas");
-        c.width = PW * 2; c.height = PH * 2;
-        const ctx = c.getContext("2d");
-        ctx.scale(2, 2);
-        ctx.fillStyle = "#fff";
-        ctx.fillRect(0, 0, PW, PH);
-        if (d.uploadedPages && d.uploadedPages[pi]) {
-          const img = await loadImg(d.uploadedPages[pi]);
-          // Fit width
-          const ratio = img.height / img.width;
-          ctx.drawImage(img, 0, 0, PW, PW * ratio);
-        }
-        // Fields
-        const fields = d.fields.filter((f) => f.page === pi);
-        for (const f of fields) {
-          if (!f.value) continue;
-          if (f.type === "signature") {
-            const im = await loadImg(f.value).catch(() => null);
-            if (im) ctx.drawImage(im, f.x, f.y, f.w, f.h);
-          } else if (f.type === "stamp") {
-            // Custom uploaded stamp (data URL) takes priority over the default
-            if (typeof f.value === "string" && f.value.startsWith("data:")) {
-              const im = await loadImg(f.value).catch(() => null);
-              if (im) ctx.drawImage(im, f.x, f.y, f.w, f.h);
-            } else if (stampImg) {
-              ctx.drawImage(stampImg, f.x, f.y, f.w, f.h);
-            }
-          } else if (f.type === "date" || f.type === "text") {
-            const isSystem = f.assignee === "system";
-            ctx.fillStyle = isSystem ? "#6B7687" : "#0E2A5C";
-            ctx.font = (isSystem ? "italic 11px" : "bold 16px") + " Heebo, sans-serif";
-            ctx.textBaseline = "middle";
-            ctx.direction = "rtl";
-            ctx.textAlign = isSystem ? "center" : "right";
-            const tx = isSystem ? f.x + f.w / 2 : f.x + f.w - 6;
-            ctx.fillText(f.value, tx, f.y + f.h / 2);
-          }
-        }
-        if (pi > 0) pdf.addPage([PW, PH]);
-        pdf.addImage(c.toDataURL("image/jpeg", 0.9), "JPEG", 0, 0, PW, PH);
+      // Capture each page directly from the DOM — this includes the template's
+      // HTML content (text, tables, images) plus any overlaid signature/stamp/
+      // date/text fields, so the PDF matches what the user sees on screen.
+      const pageEls = Array.from(document.querySelectorAll('[data-page-idx]'));
+
+      if (pageEls.length === 0) {
+        showToast("יש לפתוח את המסמך לפני הורדה");
+        return;
       }
+
+      // Sort by page index so we add them to the PDF in order.
+      pageEls.sort((a, b) => Number(a.dataset.pageIdx || 0) - Number(b.dataset.pageIdx || 0));
+
+      for (let pi = 0; pi < pageEls.length; pi++) {
+        const original = pageEls[pi];
+        // Clone off-screen at natural A4 size — avoids messing with the visible
+        // editor (no flicker, no layout shift) and forces 1:1 capture.
+        const clone = original.cloneNode(true);
+        clone.style.transform = "none";
+        clone.style.zoom = "1";
+        clone.style.position = "absolute";
+        clone.style.top = "0";
+        clone.style.left = "0";
+        clone.style.width = `${PW}px`;
+        clone.style.minHeight = `${PH}px`;
+        clone.style.height = "auto";
+        clone.style.boxShadow = "none";
+        clone.style.borderRadius = "0";
+        // Remove edit-only affordances from the clone before capturing.
+        clone.querySelectorAll(".field-tools, .field-resize, .field-tag").forEach((el) => el.remove());
+        clone.querySelectorAll(".field.placeholder:not(.filled)").forEach((el) => {
+          el.style.border = "none";
+          el.style.background = "transparent";
+        });
+        clone.querySelectorAll(".field-label").forEach((el) => { el.style.display = "none"; });
+
+        const wrap = document.createElement("div");
+        wrap.style.position = "fixed";
+        wrap.style.top = "-99999px";
+        wrap.style.left = "0";
+        wrap.style.zIndex = "-1";
+        wrap.style.background = "#fff";
+        wrap.appendChild(clone);
+        document.body.appendChild(wrap);
+
+        try {
+          const canvas = await window.html2canvas(clone, {
+            scale: 2,
+            backgroundColor: "#fff",
+            useCORS: true,
+            allowTaint: true,
+            logging: false,
+            width: PW,
+            height: Math.max(PH, clone.scrollHeight),
+            windowWidth: PW,
+            windowHeight: Math.max(PH, clone.scrollHeight),
+          });
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+          if (pi > 0) pdf.addPage([PW, PH]);
+          pdf.addImage(dataUrl, "JPEG", 0, 0, PW, PH);
+        } finally {
+          document.body.removeChild(wrap);
+        }
+      }
+
       pdf.save((d.name || "מסמך") + ".pdf");
       showToast("המסמך הורד");
     } catch (e) {
-      console.error(e);
+      console.error("PDF download failed", e);
       showToast("שגיאה בהורדה");
     }
   };
@@ -1532,10 +1747,26 @@ const App = () => {
     return completed;
   };
 
+  // Block the admin app behind a login screen. Client-route URLs (/s/<id>) bypass.
+  if (requiresAuth && !adminAuth) {
+    return <LoginModal open={true} onLogin={(auth) => { saveAdminAuth(auth); setAdminAuth(auth); }} />;
+  }
+
   return (
     <>
       {view === "library" &&
-      <Library docs={docs} onOpen={openDoc} onUpload={newDocFromUpload} onNew={newBlankDoc} onNewQuote={openNewQuote} onNewBankTransfer={openNewBankTransfer} onOpenSavedSigs={() => setSavedSigsOpen(true)} onDelete={deleteDoc} />
+      <Library
+        docs={docs}
+        onOpen={openDoc}
+        onUpload={newDocFromUpload}
+        onNew={newBlankDoc}
+        onNewQuote={openNewQuote}
+        onNewBankTransfer={openNewBankTransfer}
+        onOpenSavedSigs={() => setSavedSigsOpen(true)}
+        onDelete={deleteDoc}
+        adminEmail={adminAuth && adminAuth.email}
+        onLogout={() => { clearAdminAuth(); setAdminAuth(null); }}
+      />
       }
 
       {view === "editor" && activeDoc &&
@@ -1665,6 +1896,7 @@ const App = () => {
         initial={btFormEditingId ? (docs.find((d) => d.id === btFormEditingId)?.bankTransferData || null) : null}
         suggestedResolutionNumber={nextResolutionNumber(docs)}
         onOpenSavedSigs={() => setSavedSigsOpen(true)}
+        onVendorsChanged={() => setVendorBump((v) => v + 1)}
       />
 
       <SavedSignaturesModal
