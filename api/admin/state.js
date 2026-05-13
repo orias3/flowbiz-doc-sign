@@ -69,11 +69,39 @@ export default async function handler(req, res) {
   if (req.method === 'PUT') {
     const body = await readJson(req);
     if (!body) return res.status(400).json({ error: 'invalid_json' });
+
+    // Read current server state to compute next version + detect conflicts.
+    let prev = null;
+    try {
+      const meta = await head(STATE_PATH);
+      const r = await fetch(meta.url, { cache: 'no-store' });
+      if (r.ok) prev = await r.json();
+    } catch {}
+    const prevVersion = (prev && prev._meta && prev._meta.version) || 0;
+    const prevTs = (prev && prev._meta && prev._meta.lastUpdated) || 0;
+
+    // Optional optimistic-concurrency check. The client sends the version it
+    // last saw; if the server has moved past that, return 409 + current state
+    // so the client can reconcile. Clients that don't send a version are
+    // treated as "force write" (last-write-wins fallback).
+    if (typeof body._clientLastSeenVersion === 'number'
+        && body._clientLastSeenVersion < prevVersion) {
+      return res.status(409).json({
+        error: 'conflict',
+        currentState: prev,
+      });
+    }
+
     const payload = {
       docs: Array.isArray(body.docs) ? body.docs : [],
       vendors: Array.isArray(body.vendors) ? body.vendors : [],
       savedSignatures: Array.isArray(body.savedSignatures) ? body.savedSignatures : [],
-      _meta: { lastUpdated: Date.now(), by: user, exists: true },
+      _meta: {
+        version: prevVersion + 1,
+        lastUpdated: Date.now(),
+        by: user,
+        exists: true,
+      },
     };
     try {
       await put(STATE_PATH, JSON.stringify(payload), {

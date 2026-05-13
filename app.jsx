@@ -87,6 +87,10 @@ async function apiAdminStatePut(state, auth) {
     body: JSON.stringify(state),
   });
   if (r.status === 401) return { unauthorized: true };
+  if (r.status === 409) {
+    const data = await r.json().catch(() => ({}));
+    return { conflict: true, currentState: data.currentState || null };
+  }
   if (!r.ok) throw new Error("put_failed:" + r.status);
   return r.json();
 }
@@ -1234,91 +1238,169 @@ const App = () => {
   useEffectA(() => {saveDocs(docs);}, [docs]);
   useEffectA(() => {if (mySignature) saveSig(mySignature);}, [mySignature]);
 
-  // Refs used by the admin sync logic
+  // ── Refs for the admin sync state machine ───────────────────────────────
   const docsRef = React.useRef(docs);
   useEffectA(() => { docsRef.current = docs; }, [docs]);
-  const lastPullTsRef = React.useRef(0);
-  const pushTimerRef = React.useRef(null);
+  // The last `docs` array we *applied from the server*. Used to distinguish a
+  // local change from a remote-applied change in the push effect — without
+  // this, the setDocs call from a pull would itself trigger a push.
+  const lastAppliedDocsRef = React.useRef(null);
+  // The lastUpdated timestamp + version we have locally synchronized with.
+  const lastSyncedTsRef = React.useRef(0);
+  const lastSyncedVersionRef = React.useRef(0);
+  // Push concurrency: only one push at a time. If new changes arrive during
+  // an in-flight push, morePending stays true so the loop runs again with the
+  // freshest state.
+  const isPushingRef = React.useRef(false);
+  const morePendingRef = React.useRef(false);
+  // Pull concurrency: queue if we're in the middle of a push (otherwise the
+  // server's reply might be stale relative to the change we're about to send).
+  const queuedPullRef = React.useRef(false);
   const isApplyingRemoteRef = React.useRef(false);
+  // Mutable refs to the push/pull functions so they can call each other
+  // without circular dependency hell.
+  const doPushRef = React.useRef(null);
+  const doPullRef = React.useRef(null);
 
-  // Triggered by any local change worth syncing (docs, vendors, saved sigs).
-  // Suppressed if we just pulled — avoids ping-pong.
-  const requestAdminSync = React.useCallback(() => {
+  // PUSH — sends the latest local state. Loops if more changes accumulated
+  // during the network round-trip.
+  doPushRef.current = async () => {
     if (!adminAuth) return;
-    if (Date.now() - lastPullTsRef.current < 1500) return;
-    if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
-    pushTimerRef.current = setTimeout(async () => {
-      if (!adminAuth) return;
-      try {
-        const res = await apiAdminStatePut({
+    if (isPushingRef.current) { morePendingRef.current = true; return; }
+    isPushingRef.current = true;
+    morePendingRef.current = false;
+    try {
+      // Loop while changes keep accumulating
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        morePendingRef.current = false;
+        const snapshot = {
           docs: docsRef.current,
           vendors: loadVendors(),
           savedSignatures: loadSavedSignatures(),
-        }, adminAuth);
-        if (res && res.unauthorized) { clearAdminAuth(); setAdminAuth(null); }
-      } catch (e) {
-        console.error("admin push failed", e);
+          _clientLastSeenVersion: lastSyncedVersionRef.current,
+        };
+        const res = await apiAdminStatePut(snapshot, adminAuth);
+        if (res && res.unauthorized) {
+          clearAdminAuth(); setAdminAuth(null);
+          break;
+        }
+        if (res && res.conflict) {
+          // Someone else wrote first. Accept their state, lose this push's edits.
+          // For 2-user low-conflict use this is acceptable; the next change
+          // will push again with the merged base.
+          if (res.currentState) {
+            isApplyingRemoteRef.current = true;
+            const cs = res.currentState;
+            lastSyncedTsRef.current = (cs._meta && cs._meta.lastUpdated) || 0;
+            lastSyncedVersionRef.current = (cs._meta && cs._meta.version) || 0;
+            if (Array.isArray(cs.docs)) {
+              lastAppliedDocsRef.current = cs.docs;
+              setDocs(cs.docs);
+            }
+            if (Array.isArray(cs.savedSignatures)) saveSavedSignatures(cs.savedSignatures);
+            if (Array.isArray(cs.vendors)) saveVendors(cs.vendors);
+            setSavedSigsRefreshKey((k) => k + 1);
+            setVendorBump((v) => v + 1);
+            setTimeout(() => { isApplyingRemoteRef.current = false; }, 50);
+          }
+          break;
+        }
+        if (res && res._meta) {
+          lastSyncedTsRef.current = res._meta.lastUpdated;
+          lastSyncedVersionRef.current = res._meta.version;
+        }
+        if (!morePendingRef.current) break;
       }
-    }, 1500);
-  }, [adminAuth]);
+    } catch (e) {
+      console.error("admin push failed", e);
+      morePendingRef.current = true; // try again on next change
+    } finally {
+      isPushingRef.current = false;
+      if (queuedPullRef.current && !morePendingRef.current) {
+        queuedPullRef.current = false;
+        doPullRef.current && doPullRef.current();
+      }
+    }
+  };
 
-  // Pull state from server, replace local store. Used on login + on focus.
-  const pullAdminState = React.useCallback(async () => {
+  // PULL — checks for newer state on the server. SKIPPED if we have local
+  // changes pending or are currently pushing — never overwrite unsaved edits.
+  doPullRef.current = async () => {
     if (!adminAuth) return;
+    if (isPushingRef.current || morePendingRef.current) {
+      queuedPullRef.current = true;
+      return;
+    }
     try {
       const state = await apiAdminStateGet(adminAuth);
       if (!state || state.unauthorized) {
         clearAdminAuth(); setAdminAuth(null);
         return;
       }
-      isApplyingRemoteRef.current = true;
-      lastPullTsRef.current = Date.now();
-
       const remoteExists = state._meta && state._meta.exists;
-      if (remoteExists) {
-        if (Array.isArray(state.docs)) setDocs(state.docs);
-        if (Array.isArray(state.savedSignatures)) saveSavedSignatures(state.savedSignatures);
-        if (Array.isArray(state.vendors)) saveVendors(state.vendors);
-        setSavedSigsRefreshKey((k) => k + 1);
-        setVendorBump((v) => v + 1);
-      } else {
-        // First-time seed: push whatever this admin already has locally so the
-        // other admin will see the same on first login.
-        try {
-          await apiAdminStatePut({
-            docs: docsRef.current,
-            savedSignatures: loadSavedSignatures(),
-            vendors: loadVendors(),
-          }, adminAuth);
-        } catch (e) { console.error("admin seed failed", e); }
+      const remoteTs = (state._meta && state._meta.lastUpdated) || 0;
+      const remoteVer = (state._meta && state._meta.version) || 0;
+
+      if (!remoteExists) {
+        // First-time seed: push our local DEFAULT_DOCS/whatever as the initial state
+        if (doPushRef.current) doPushRef.current();
+        return;
       }
-      setTimeout(() => { isApplyingRemoteRef.current = false; }, 200);
+
+      if (remoteTs <= lastSyncedTsRef.current) return; // nothing new
+
+      isApplyingRemoteRef.current = true;
+      lastSyncedTsRef.current = remoteTs;
+      lastSyncedVersionRef.current = remoteVer;
+      if (Array.isArray(state.docs)) {
+        lastAppliedDocsRef.current = state.docs;
+        setDocs(state.docs);
+      }
+      if (Array.isArray(state.savedSignatures)) saveSavedSignatures(state.savedSignatures);
+      if (Array.isArray(state.vendors)) saveVendors(state.vendors);
+      setSavedSigsRefreshKey((k) => k + 1);
+      setVendorBump((v) => v + 1);
+      setTimeout(() => { isApplyingRemoteRef.current = false; }, 50);
     } catch (e) {
       console.error("admin pull failed", e);
     }
-  }, [adminAuth]);
+  };
 
   // On login, pull once
   useEffectA(() => {
     if (!adminAuth) return;
     setBootingAdmin(true);
-    pullAdminState().finally(() => setBootingAdmin(false));
+    if (doPullRef.current) doPullRef.current();
+    // Booting flag doesn't really need to await; pull is fire-and-forget
+    setTimeout(() => setBootingAdmin(false), 600);
   }, [adminAuth]);
 
   // Pull on window focus
   useEffectA(() => {
     if (!adminAuth) return;
-    const onFocus = () => pullAdminState();
+    const onFocus = () => { if (doPullRef.current) doPullRef.current(); };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [adminAuth, pullAdminState]);
+  }, [adminAuth]);
 
-  // Push on docs / vendor / saved-sigs changes
+  // Push on local docs change. Skips if the change came from applying remote
+  // state (the lastAppliedDocsRef === current docs check).
+  useEffectA(() => {
+    if (!adminAuth) return;
+    if (docs === lastAppliedDocsRef.current) return;
+    if (doPushRef.current) doPushRef.current();
+  }, [docs, adminAuth]);
+
+  // Push on saved-sigs / vendors change. The isApplyingRemote gate prevents
+  // an apply-remote from re-pushing immediately.
   useEffectA(() => {
     if (!adminAuth) return;
     if (isApplyingRemoteRef.current) return;
-    requestAdminSync();
-  }, [docs, savedSigsRefreshKey, vendorBump, adminAuth, requestAdminSync]);
+    // Skip the very first mount fire (counters start at 0)
+    if (savedSigsRefreshKey === 0 && vendorBump === 0) return;
+    if (doPushRef.current) doPushRef.current();
+  }, [savedSigsRefreshKey, vendorBump, adminAuth]);
 
   // URL routing — /s/<id> path is hard-locked to the client signing view.
   useEffectA(() => {
