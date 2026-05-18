@@ -116,6 +116,11 @@ function todayDateString() {
   return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
 }
 
+function nowTimeString() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 const DEFAULT_DOCS = [
 {
   id: "demo-1", name: "הסכם שירותי ייעוץ דיגיטלי", template: "service_agreement",
@@ -1159,15 +1164,6 @@ const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedReso
   );
 };
 
-const SC_AGENT_OPTIONS = ["", "אורי", "עמית"];
-const SC_CHANNEL_OPTIONS = [
-  { v: "phone", l: "טלפון" },
-  { v: "zoom", l: "Zoom" },
-  { v: "meet", l: "Google Meet" },
-  { v: "in_person", l: "פגישה פיזית" },
-  { v: "whatsapp", l: "WhatsApp" },
-];
-
 // Plain section divider (no accordion) — the sales-call form is single-flow:
 // everything's visible, just scroll top-to-bottom.
 const ScSection = ({ title, children }) => (
@@ -1199,7 +1195,10 @@ const ScTextArea = ({ value, onChange, placeholder, rows = 2 }) => (
 const SalesCallFormModal = ({ open, onClose, onSubmit, initial }) => {
   const seedData = () => {
     const base = window.normalizeSalesCallData ? window.normalizeSalesCallData(initial) : { ...(initial || {}) };
-    if (!base.callDate && !initial) base.callDate = todayDateString();
+    if (!initial) {
+      if (!base.callDate) base.callDate = todayDateString();
+      if (!base.callTime) base.callTime = nowTimeString();
+    }
     return base;
   };
 
@@ -1236,20 +1235,6 @@ const SalesCallFormModal = ({ open, onClose, onSubmit, initial }) => {
             <label className="qfield">
               <span>שעה</span>
               <input value={data.callTime} onChange={(e) => update({ callTime: e.target.value })} dir="ltr" placeholder="14:30" />
-            </label>
-          </div>
-          <div className="qgrid">
-            <label className="qfield">
-              <span>מי ניהל את השיחה</span>
-              <select value={data.agent} onChange={(e) => update({ agent: e.target.value })}>
-                {SC_AGENT_OPTIONS.map((o) => <option key={o} value={o}>{o || "— בחר/י —"}</option>)}
-              </select>
-            </label>
-            <label className="qfield">
-              <span>ערוץ</span>
-              <select value={data.callChannel} onChange={(e) => update({ callChannel: e.target.value })}>
-                {SC_CHANNEL_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
-              </select>
             </label>
           </div>
         </ScSection>

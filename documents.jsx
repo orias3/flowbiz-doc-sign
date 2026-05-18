@@ -340,8 +340,6 @@ const SALES_CALL_DEFAULTS = {
   clientName: "",
   callDate: "",
   callTime: "",
-  agent: "",                  // Ori / Amit / other
-  callChannel: "phone",       // phone | zoom | meet | in_person | whatsapp
 
   // Pre-call checkboxes
   smallTalkDone: false,
@@ -385,15 +383,6 @@ function normalizeSalesCallData(s) {
 
 window.SALES_CALL_DEFAULTS = SALES_CALL_DEFAULTS;
 window.normalizeSalesCallData = normalizeSalesCallData;
-
-const SC_CHANNEL_LABELS = {
-  phone: "טלפון",
-  zoom: "Zoom",
-  meet: "Google Meet",
-  in_person: "פגישה פיזית",
-  whatsapp: "WhatsApp",
-};
-const SC_LIKELIHOOD_LABELS = { low: "נמוכה", medium: "בינונית", high: "גבוהה" };
 
 function Check({ on, label }) {
   return (
@@ -738,7 +727,6 @@ DOC_TEMPLATES.sales_call = {
   pages: 1,
   render: (page, doc) => {
     const s = normalizeSalesCallData(doc && doc.salesCallData);
-    const channel = SC_CHANNEL_LABELS[s.callChannel] || s.callChannel || "—";
 
     return (
       <div className="page-content sc-page">
@@ -757,8 +745,6 @@ DOC_TEMPLATES.sales_call = {
             <h1 className="quote-h1" style={{ marginTop: 2, marginBottom: 4 }}>{s.clientName || "—"}</h1>
             <div className="sc-header-meta">
               {s.callDate && <span>📅 {s.callDate}{s.callTime ? ` · ${s.callTime}` : ""}</span>}
-              {s.agent && <span>👤 {s.agent}</span>}
-              {channel && channel !== "—" && <span>📞 {channel}</span>}
             </div>
           </div>
           {s.purchased && (
