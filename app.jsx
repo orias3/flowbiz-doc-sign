@@ -1167,7 +1167,34 @@ const SC_CHANNEL_OPTIONS = [
   { v: "in_person", l: "פגישה פיזית" },
   { v: "whatsapp", l: "WhatsApp" },
 ];
-const SC_LEAD_SOURCES = ["", "Instagram", "TikTok", "WhatsApp", "המלצה", "אתר", "מודעה", "אחר"];
+
+// Plain section divider (no accordion) — the sales-call form is single-flow:
+// everything's visible, just scroll top-to-bottom.
+const ScSection = ({ title, children }) => (
+  <div className="sc-form-section">
+    <div className="sc-form-section-title">{title}</div>
+    <div className="sc-form-section-body">{children}</div>
+  </div>
+);
+
+// CheckRow and TextArea MUST live at module level — defining them inside the
+// modal would give them a fresh component identity on every keystroke, which
+// makes React unmount/remount the input and lose focus + scroll position.
+const ScCheckRow = ({ checked, onChange, label }) => (
+  <label className="sc-check-row">
+    <input type="checkbox" checked={!!checked} onChange={(e) => onChange(e.target.checked)} />
+    <span>{label}</span>
+  </label>
+);
+const ScTextArea = ({ value, onChange, placeholder, rows = 2 }) => (
+  <textarea
+    rows={rows}
+    value={value || ""}
+    onChange={(e) => onChange(e.target.value)}
+    placeholder={placeholder || ""}
+    className="sc-textarea"
+  />
+);
 
 const SalesCallFormModal = ({ open, onClose, onSubmit, initial }) => {
   const seedData = () => {
@@ -1177,48 +1204,26 @@ const SalesCallFormModal = ({ open, onClose, onSubmit, initial }) => {
   };
 
   const [data, setData] = useStateA(seedData);
-  const [openSection, setOpenSection] = useStateA("meta");
 
   useEffectA(() => {
-    if (open) {
-      setData(seedData());
-      setOpenSection("meta");
-    }
+    if (open) setData(seedData());
   }, [open]);
 
   const update = (patch) => setData((d) => ({ ...d, ...patch }));
 
   const canSave = (data.clientName || "").trim().length > 0;
 
-  // Compact check-row component
-  const CheckRow = ({ k, label }) => (
-    <label className="sc-check-row" onClick={(e) => e.stopPropagation()}>
-      <input type="checkbox" checked={!!data[k]} onChange={(e) => update({ [k]: e.target.checked })} />
-      <span>{label}</span>
-    </label>
-  );
-
-  const TextArea = ({ k, placeholder, rows = 2 }) => (
-    <textarea
-      rows={rows}
-      value={data[k] || ""}
-      onChange={(e) => update({ [k]: e.target.value })}
-      placeholder={placeholder || ""}
-      className="sc-textarea"
-    />
-  );
+  // Tiny key-bound wrappers to keep the JSX terse without recreating components.
+  const cbk = (k) => ({ checked: !!data[k], onChange: (v) => update({ [k]: v }) });
+  const txk = (k) => ({ value: data[k], onChange: (v) => update({ [k]: v }) });
 
   return (
     <Modal open={open} onClose={onClose} wide
       title={initial ? "עריכת סיכום שיחה" : "סיכום שיחת מכירה חדש"}
-      subtitle="מלא/י את הסקשנים הרלוונטיים. ניתן לחזור ולערוך מאוחר יותר.">
-      <div className="qform">
+      subtitle="מלא/י את השדות הרלוונטיים — הכל בזרימה אחת. ניתן לחזור ולערוך מאוחר יותר.">
+      <div className="qform sc-form-flow">
 
-        <QuoteFormSection
-          title="פרטי לקוח ופגישה"
-          isOpen={openSection === "meta"}
-          onToggleOpen={() => setOpenSection(openSection === "meta" ? null : "meta")}
-        >
+        <ScSection title="פרטי לקוח ופגישה">
           <label className="qfield">
             <span>שם הלקוח <span className="req">*</span></span>
             <input value={data.clientName} onChange={(e) => update({ clientName: e.target.value })} placeholder="שם פרטי + שם משפחה" autoFocus />
@@ -1247,75 +1252,43 @@ const SalesCallFormModal = ({ open, onClose, onSubmit, initial }) => {
               </select>
             </label>
           </div>
-          <div className="qgrid">
-            <label className="qfield">
-              <span>משך השיחה (אופציונלי)</span>
-              <input value={data.callDuration} onChange={(e) => update({ callDuration: e.target.value })} placeholder="22 דקות" />
-            </label>
-            <label className="qfield">
-              <span>מקור הליד</span>
-              <select value={data.leadSource} onChange={(e) => update({ leadSource: e.target.value })}>
-                {SC_LEAD_SOURCES.map((o) => <option key={o} value={o}>{o || "— בחר/י —"}</option>)}
-              </select>
-            </label>
-          </div>
-        </QuoteFormSection>
+        </ScSection>
 
-        <QuoteFormSection
-          title="פתיחה (סימוני ✓)"
-          isOpen={openSection === "open"}
-          onToggleOpen={() => setOpenSection(openSection === "open" ? null : "open")}
-        >
-          <CheckRow k="smallTalkDone" label="סמול טוק ויצירת קשר ראשוני" />
-          <CheckRow k="goalsIntroDone" label='הצגת מטרות + העסק שלנו (עד 2 דקות) + איך תיראה הפגישה' />
-        </QuoteFormSection>
+        <ScSection title="פתיחה (סימוני ✓)">
+          <ScCheckRow {...cbk("smallTalkDone")} label="סמול טוק ויצירת קשר ראשוני" />
+          <ScCheckRow {...cbk("goalsIntroDone")} label='הצגת מטרות + העסק שלנו (עד 2 דקות) + איך תיראה הפגישה' />
+        </ScSection>
 
-        <QuoteFormSection
-          title="שאלות גילוי"
-          isOpen={openSection === "discover"}
-          onToggleOpen={() => setOpenSection(openSection === "discover" ? null : "discover")}
-        >
-          <label className="qfield"><span>1. מה אתה עושה כיום?</span><TextArea k="q1_currentJob" /></label>
-          <label className="qfield"><span>2. מה העסק שאת/ה רוצה להקים? יש לך כבר רעיון מגובש?</span><TextArea k="q2_businessIdea" /></label>
-          <label className="qfield"><span>3. למה דווקא העסק הזה?</span><TextArea k="q3_whyBusiness" /></label>
-          <label className="qfield"><span>4. מה עצר אותך עד עכשיו?</span><TextArea k="q4_whatStopped" /></label>
-          <label className="qfield"><span>5. למה דווקא עכשיו?</span><TextArea k="q5_whyNow" /></label>
-          <label className="qfield"><span>6. כמה זמן את/ה מוכן להשקיע בעסק בשבוע?</span><TextArea k="q6_timeWeek" /></label>
-          <label className="qfield"><span>7. כמה אתה רוצה שהעסק יכניס לך?</span><TextArea k="q7_targetIncome" /></label>
-        </QuoteFormSection>
+        <ScSection title="שאלות גילוי">
+          <label className="qfield"><span>1. מה אתה עושה כיום?</span><ScTextArea {...txk("q1_currentJob")} /></label>
+          <label className="qfield"><span>2. מה העסק שאת/ה רוצה להקים? יש לך כבר רעיון מגובש?</span><ScTextArea {...txk("q2_businessIdea")} /></label>
+          <label className="qfield"><span>3. למה דווקא העסק הזה?</span><ScTextArea {...txk("q3_whyBusiness")} /></label>
+          <label className="qfield"><span>4. מה עצר אותך עד עכשיו?</span><ScTextArea {...txk("q4_whatStopped")} /></label>
+          <label className="qfield"><span>5. למה דווקא עכשיו?</span><ScTextArea {...txk("q5_whyNow")} /></label>
+          <label className="qfield"><span>6. כמה זמן את/ה מוכן להשקיע בעסק בשבוע?</span><ScTextArea {...txk("q6_timeWeek")} /></label>
+          <label className="qfield"><span>7. כמה אתה רוצה שהעסק יכניס לך?</span><ScTextArea {...txk("q7_targetIncome")} /></label>
+        </ScSection>
 
-        <QuoteFormSection
-          title="שאלות פתיחת הדגמה"
-          isOpen={openSection === "demo"}
-          onToggleOpen={() => setOpenSection(openSection === "demo" ? null : "demo")}
-        >
-          <CheckRow k="demoQ1_check" label='“נניח ואני מראה לך עכשיו את המערכת והיא פותרת לך את מה שתיארת — מה צריך לקרות כדי שתצא מהשיחה הזו ותרגיש שעשית את הצעד הנכון?”' />
+        <ScSection title="שאלות פתיחת הדגמה">
+          <ScCheckRow {...cbk("demoQ1_check")} label='“נניח ואני מראה לך עכשיו את המערכת והיא פותרת לך את מה שתיארת — מה צריך לקרות כדי שתצא מהשיחה הזו ותרגיש שעשית את הצעד הנכון?”' />
           <label className="qfield">
             <span>תשובת הלקוח (אופציונלי)</span>
-            <TextArea k="demoQ1_note" placeholder="תקציר התשובה" />
+            <ScTextArea {...txk("demoQ1_note")} placeholder="תקציר התשובה" />
           </label>
           <label className="qfield">
             <span>מ-1 עד 10, כמה את/ה רוצה להקים את העסק?</span>
             <input value={data.demoQ2_rating} onChange={(e) => update({ demoQ2_rating: e.target.value })} dir="ltr" placeholder="1—10" />
           </label>
-        </QuoteFormSection>
+        </ScSection>
 
-        <QuoteFormSection
-          title="הצגת פתרון ומחיר (סימוני ✓)"
-          isOpen={openSection === "pitch"}
-          onToggleOpen={() => setOpenSection(openSection === "pitch" ? null : "pitch")}
-        >
-          <CheckRow k="solutionPresented" label="הצגת פתרון ופיצ׳רים לפי בעיות שהעלה הלקוח" />
-          <CheckRow k="pricingPresented" label="הצגת מחיר" />
-          <CheckRow k="letClientReact" label='לאחר ההצגה — לתת ללקוח להגיב ראשון' />
-        </QuoteFormSection>
+        <ScSection title="הצגת פתרון ומחיר (סימוני ✓)">
+          <ScCheckRow {...cbk("solutionPresented")} label="הצגת פתרון ופיצ׳רים לפי בעיות שהעלה הלקוח" />
+          <ScCheckRow {...cbk("pricingPresented")} label="הצגת מחיר" />
+          <ScCheckRow {...cbk("letClientReact")} label='לאחר ההצגה — לתת ללקוח להגיב ראשון' />
+        </ScSection>
 
-        <QuoteFormSection
-          title="תוצאה"
-          isOpen={openSection === "outcome"}
-          onToggleOpen={() => setOpenSection(openSection === "outcome" ? null : "outcome")}
-        >
-          <CheckRow k="purchased" label="התבצעה רכישה?" />
+        <ScSection title="תוצאה">
+          <ScCheckRow {...cbk("purchased")} label="התבצעה רכישה?" />
           {data.purchased && (
             <>
               <label className="qfield">
@@ -1334,63 +1307,27 @@ const SalesCallFormModal = ({ open, onClose, onSubmit, initial }) => {
               {data.purchaseType === "special" && (
                 <label className="qfield">
                   <span>פירוט התכנית המיוחדת</span>
-                  <TextArea k="purchaseDetails" rows={3} placeholder="הנחה / חבילה משולבת / תשלומים מיוחדים / וכו" />
+                  <ScTextArea {...txk("purchaseDetails")} rows={3} placeholder="הנחה / חבילה משולבת / תשלומים מיוחדים / וכו" />
                 </label>
               )}
             </>
           )}
           <label className="qfield">
             <span>התנגדויות / חששות שעלו</span>
-            <TextArea k="objections" placeholder="לדוגמה: יקר מדי, אין זמן, אני צריך לחשוב..." />
+            <ScTextArea {...txk("objections")} placeholder="לדוגמה: יקר מדי, אין זמן, אני צריך לחשוב..." />
           </label>
-        </QuoteFormSection>
+        </ScSection>
 
-        <QuoteFormSection
-          title="סיכום שיחה"
-          isOpen={openSection === "summary"}
-          onToggleOpen={() => setOpenSection(openSection === "summary" ? null : "summary")}
-        >
+        <ScSection title="סיכום שיחה">
           <label className="qfield">
             <span>סיכום</span>
-            <TextArea k="summary" rows={6} placeholder="נקודות עיקריות, רגעים מכריעים, מה עבד / לא עבד" />
+            <ScTextArea {...txk("summary")} rows={6} placeholder="נקודות עיקריות, רגעים מכריעים, מה עבד / לא עבד" />
           </label>
-        </QuoteFormSection>
+        </ScSection>
 
-        <QuoteFormSection
-          title="מעקב פנימי"
-          isOpen={openSection === "internal"}
-          onToggleOpen={() => setOpenSection(openSection === "internal" ? null : "internal")}
-        >
-          <CheckRow k="uploadedToMonday" label="הועלה לכרטיס לקוח ב-Monday" />
-          <div className="qgrid">
-            <label className="qfield">
-              <span>שלב הבא</span>
-              <input value={data.nextStep} onChange={(e) => update({ nextStep: e.target.value })} placeholder="שיחת המשך / שליחת הצעה" />
-            </label>
-            <label className="qfield">
-              <span>תאריך מעקב</span>
-              <input value={data.nextStepDate} onChange={(e) => update({ nextStepDate: e.target.value })} dir="ltr" placeholder="DD.MM.YYYY" />
-            </label>
-          </div>
-          <div className="qgrid">
-            <label className="qfield">
-              <span>סיכוי המרה</span>
-              <select value={data.conversionLikelihood} onChange={(e) => update({ conversionLikelihood: e.target.value })}>
-                <option value="">— בחר/י —</option>
-                <option value="low">נמוכה</option>
-                <option value="medium">בינונית</option>
-                <option value="high">גבוהה</option>
-              </select>
-            </label>
-            <label className="qfield">
-              <span>דירוג איכות השיחה (1—5)</span>
-              <select value={data.callRating} onChange={(e) => update({ callRating: e.target.value })}>
-                <option value="">— בחר/י —</option>
-                {[1,2,3,4,5].map((n) => <option key={n} value={n}>{n} {"★".repeat(n)}</option>)}
-              </select>
-            </label>
-          </div>
-        </QuoteFormSection>
+        <ScSection title="מעקב פנימי">
+          <ScCheckRow {...cbk("uploadedToMonday")} label="הועלה לכרטיס לקוח ב-Monday" />
+        </ScSection>
 
       </div>
       <div className="modal-actions">

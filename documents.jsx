@@ -342,8 +342,6 @@ const SALES_CALL_DEFAULTS = {
   callTime: "",
   agent: "",                  // Ori / Amit / other
   callChannel: "phone",       // phone | zoom | meet | in_person | whatsapp
-  callDuration: "",
-  leadSource: "",             // where the client came from
 
   // Pre-call checkboxes
   smallTalkDone: false,
@@ -372,19 +370,13 @@ const SALES_CALL_DEFAULTS = {
   purchased: false,
   purchaseType: "",           // regular | special
   purchaseDetails: "",
+  objections: "",
 
   // Summary
   summary: "",
 
-  // Follow-up
+  // Follow-up — only the Monday status
   uploadedToMonday: false,
-  nextStep: "",
-  nextStepDate: "",
-
-  // Suggested internal-tracking fields (all optional)
-  callRating: "",             // 1–5 stars
-  conversionLikelihood: "",   // low | medium | high
-  objections: "",
 };
 
 function normalizeSalesCallData(s) {
@@ -747,9 +739,6 @@ DOC_TEMPLATES.sales_call = {
   render: (page, doc) => {
     const s = normalizeSalesCallData(doc && doc.salesCallData);
     const channel = SC_CHANNEL_LABELS[s.callChannel] || s.callChannel || "—";
-    const likelihood = SC_LIKELIHOOD_LABELS[s.conversionLikelihood] || "";
-    const rating = Number(s.callRating) || 0;
-    const stars = rating > 0 ? "★".repeat(rating) + "☆".repeat(Math.max(0, 5 - rating)) : "";
 
     return (
       <div className="page-content sc-page">
@@ -770,8 +759,6 @@ DOC_TEMPLATES.sales_call = {
               {s.callDate && <span>📅 {s.callDate}{s.callTime ? ` · ${s.callTime}` : ""}</span>}
               {s.agent && <span>👤 {s.agent}</span>}
               {channel && channel !== "—" && <span>📞 {channel}</span>}
-              {s.callDuration && <span>⏱ {s.callDuration}</span>}
-              {s.leadSource && <span>📍 {s.leadSource}</span>}
             </div>
           </div>
           {s.purchased && (
@@ -858,26 +845,6 @@ DOC_TEMPLATES.sales_call = {
         <div className="sc-section">
           <div className="sc-section-title">מעקב פנימי</div>
           <Check on={s.uploadedToMonday} label="הועלה לכרטיס לקוח ב-Monday" />
-          <div className="sc-outcome-grid">
-            {(s.nextStep || s.nextStepDate) && (
-              <div>
-                <div className="sc-lbl">שלב הבא</div>
-                <div className="sc-val">{s.nextStep || "—"}{s.nextStepDate ? ` · ${s.nextStepDate}` : ""}</div>
-              </div>
-            )}
-            {likelihood && (
-              <div>
-                <div className="sc-lbl">סיכוי המרה</div>
-                <div className="sc-val">{likelihood}</div>
-              </div>
-            )}
-            {stars && (
-              <div>
-                <div className="sc-lbl">דירוג איכות השיחה</div>
-                <div className="sc-val sc-stars">{stars}</div>
-              </div>
-            )}
-          </div>
         </div>
       </div>
     );
