@@ -478,13 +478,12 @@ const QuoteFormModal = ({ open, onClose, onSubmit, initial }) => {
               </label>
             </div>
             <label className="qfield">
-              <span>טקסט חיסכון</span>
-              <input value={data.savingsText} onChange={(e) => update({ savingsText: e.target.value })} placeholder="(השאר ריק להסתרה)" />
-            </label>
-            <label className="qfield">
               <span>תווית מחיר (תחת המספר)</span>
               <input value={data.monthsLabel} onChange={(e) => update({ monthsLabel: e.target.value })} />
             </label>
+            <p className="qfield-hint">
+              <Icon name="info" size={12} /> שורת ה"חיסכון" במסמך מחושבת אוטומטית מהפרש המחירים (מחירון פחות מבצע).
+            </p>
             <label className="qfield">
               <span>הערת תחתית בקופסת המחיר</span>
               <textarea rows={2} value={data.pricingFootnote} onChange={(e) => update({ pricingFootnote: e.target.value })} />

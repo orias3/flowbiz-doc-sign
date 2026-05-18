@@ -416,6 +416,12 @@ DOC_TEMPLATES.flowbiz_quote = {
     const vars = { monthlyPrice: q.monthlyPrice, fullPrice: q.fullPrice };
     const pricingFootnote = interpolate(q.pricingFootnote, vars);
     const termsText = interpolate(q.termsText, vars);
+    // Auto-compute the monthly savings from the price diff. Falls back to
+    // showing nothing if either price is non-numeric or no savings.
+    const _monthlyNum = parseFloat(String(q.monthlyPrice).replace(/[^\d.]/g, ""));
+    const _fullNum = parseFloat(String(q.fullPrice).replace(/[^\d.]/g, ""));
+    const savingsAmount = (Number.isFinite(_fullNum) && Number.isFinite(_monthlyNum)) ? (_fullNum - _monthlyNum) : 0;
+    const computedSavings = savingsAmount > 0 ? `חיסכון של ₪${savingsAmount} לחודש` : "";
 
     if (page === 0) {
       return (
@@ -481,7 +487,7 @@ DOC_TEMPLATES.flowbiz_quote = {
               <div className="quote-price-left">
                 <div className="quote-price-name">{q.packageName}</div>
                 <div className="quote-price-sub">{q.packageSub}</div>
-                {q.savingsText && <div className="quote-savings">{q.savingsText}</div>}
+                {computedSavings && <div className="quote-savings">{computedSavings}</div>}
               </div>
               <div className="quote-price-right">
                 <div className="quote-price-old">{q.fullPrice} ₪ / חודש</div>
