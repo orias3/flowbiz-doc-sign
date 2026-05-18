@@ -8,7 +8,7 @@ const TOOLS = [
   { id: "text", name: "שם / טקסט", desc: "שורה חופשית", icon: "type", w: 180, h: 32 },
 ];
 
-const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTransfer, mySignature, onNeedSignature, viewMode = "owner", locked = false }) => {
+const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTransfer, onEditSalesCall, mySignature, onNeedSignature, viewMode = "owner", locked = false }) => {
   // viewMode: 'owner' (full editor) | 'counterparty' (fills their fields only) | 'readonly' (no editing)
   const isReadOnly = viewMode === "readonly" || locked;
   const [tool, setTool] = useStateE(null);
@@ -341,6 +341,17 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
                 </button>
                 <p style={{ fontSize: 11.5, color: "var(--gray-500)", margin: "8px 2px 0", lineHeight: 1.5 }}>
                   ספק, סכום, חשבון יעד ומורשי חתימה — מתעדכנים מיד במסמך.
+                </p>
+              </div>
+            )}
+
+            {onEditSalesCall && (
+              <div className="side-group">
+                <button className="btn btn-secondary" style={{ width: "100%", justifyContent: "center" }} onClick={onEditSalesCall}>
+                  <Icon name="edit" size={14}/> ערוך סיכום שיחה
+                </button>
+                <p style={{ fontSize: 11.5, color: "var(--gray-500)", margin: "8px 2px 0", lineHeight: 1.5 }}>
+                  שאלות, סיכום, סטטוס רכישה — מתעדכנים מיד במסמך.
                 </p>
               </div>
             )}

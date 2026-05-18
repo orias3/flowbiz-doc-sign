@@ -334,6 +334,93 @@ function normalizeBankTransferData(b) {
 window.BANK_TRANSFER_DEFAULTS = BANK_TRANSFER_DEFAULTS;
 window.normalizeBankTransferData = normalizeBankTransferData;
 
+// ── Sales call summary — internal record of a discovery/closing call ──
+const SALES_CALL_DEFAULTS = {
+  // Meeting metadata
+  clientName: "",
+  callDate: "",
+  callTime: "",
+  agent: "",                  // Ori / Amit / other
+  callChannel: "phone",       // phone | zoom | meet | in_person | whatsapp
+  callDuration: "",
+  leadSource: "",             // where the client came from
+
+  // Pre-call checkboxes
+  smallTalkDone: false,
+  goalsIntroDone: false,
+
+  // Discovery — free-text answers
+  q1_currentJob: "",
+  q2_businessIdea: "",
+  q3_whyBusiness: "",
+  q4_whatStopped: "",
+  q5_whyNow: "",
+  q6_timeWeek: "",
+  q7_targetIncome: "",
+
+  // Demo opening
+  demoQ1_check: false,
+  demoQ1_note: "",
+  demoQ2_rating: "",          // 1–10
+
+  // Solution presentation
+  solutionPresented: false,
+  pricingPresented: false,
+  letClientReact: false,
+
+  // Outcome
+  purchased: false,
+  purchaseType: "",           // regular | special
+  purchaseDetails: "",
+
+  // Summary
+  summary: "",
+
+  // Follow-up
+  uploadedToMonday: false,
+  nextStep: "",
+  nextStepDate: "",
+
+  // Suggested internal-tracking fields (all optional)
+  callRating: "",             // 1–5 stars
+  conversionLikelihood: "",   // low | medium | high
+  objections: "",
+};
+
+function normalizeSalesCallData(s) {
+  return { ...SALES_CALL_DEFAULTS, ...(s || {}) };
+}
+
+window.SALES_CALL_DEFAULTS = SALES_CALL_DEFAULTS;
+window.normalizeSalesCallData = normalizeSalesCallData;
+
+const SC_CHANNEL_LABELS = {
+  phone: "טלפון",
+  zoom: "Zoom",
+  meet: "Google Meet",
+  in_person: "פגישה פיזית",
+  whatsapp: "WhatsApp",
+};
+const SC_LIKELIHOOD_LABELS = { low: "נמוכה", medium: "בינונית", high: "גבוהה" };
+
+function Check({ on, label }) {
+  return (
+    <div className={"sc-check " + (on ? "on" : "off")}>
+      <span className="sc-check-box">{on ? "✓" : ""}</span>
+      <span className="sc-check-label">{label}</span>
+    </div>
+  );
+}
+
+function QA({ q, a }) {
+  return (
+    <div className="sc-qa">
+      <div className="sc-qa-q">{q}</div>
+      <div className={"sc-qa-a " + (a ? "" : "empty")}>{a || "—"}</div>
+    </div>
+  );
+}
+
 // FlowBiz price quote — fillable template based on the company's standard quote PDF
 DOC_TEMPLATES.flowbiz_quote = {
   name: "הצעת מחיר FlowBiz",
@@ -646,6 +733,152 @@ DOC_TEMPLATES.bank_transfer = {
             <strong>כללי:</strong> {b.disclaimerText}
           </div>
         )}
+      </div>
+    );
+  },
+};
+
+// Sales call summary template — internal record (no signature flow needed by default)
+DOC_TEMPLATES.sales_call = {
+  name: "סיכום שיחת מכירה",
+  category: "סיכום שיחה",
+  counterparty: "לקוח פוטנציאלי",
+  pages: 1,
+  render: (page, doc) => {
+    const s = normalizeSalesCallData(doc && doc.salesCallData);
+    const channel = SC_CHANNEL_LABELS[s.callChannel] || s.callChannel || "—";
+    const likelihood = SC_LIKELIHOOD_LABELS[s.conversionLikelihood] || "";
+    const rating = Number(s.callRating) || 0;
+    const stars = rating > 0 ? "★".repeat(rating) + "☆".repeat(Math.max(0, 5 - rating)) : "";
+
+    return (
+      <div className="page-content sc-page">
+        <div className="quote-head">
+          <div className="quote-head-info">
+            <div className="quote-head-co">A.O.T STARTAPPS LTD</div>
+            <div className="quote-head-sub">סיכום שיחה — לשימוש פנימי</div>
+          </div>
+          <img src="assets/logo.png" alt="FlowBiz" className="quote-head-logo" />
+        </div>
+        <hr className="quote-hr" />
+
+        <div className="sc-header">
+          <div className="sc-header-main">
+            <div className="quote-eyebrow">סיכום שיחת מכירה · SALES CALL</div>
+            <h1 className="quote-h1" style={{ marginTop: 2, marginBottom: 4 }}>{s.clientName || "—"}</h1>
+            <div className="sc-header-meta">
+              {s.callDate && <span>📅 {s.callDate}{s.callTime ? ` · ${s.callTime}` : ""}</span>}
+              {s.agent && <span>👤 {s.agent}</span>}
+              {channel && channel !== "—" && <span>📞 {channel}</span>}
+              {s.callDuration && <span>⏱ {s.callDuration}</span>}
+              {s.leadSource && <span>📍 {s.leadSource}</span>}
+            </div>
+          </div>
+          {s.purchased && (
+            <div className="sc-outcome-pill ok">
+              ✓ נסגרה עסקה{s.purchaseType === "regular" ? " · תכנית רגילה" : s.purchaseType === "special" ? " · תכנית מיוחדת" : ""}
+            </div>
+          )}
+          {!s.purchased && (
+            <div className="sc-outcome-pill warn">לא נסגרה עסקה</div>
+          )}
+        </div>
+
+        <div className="sc-section">
+          <div className="sc-section-title">פתיחה</div>
+          <Check on={s.smallTalkDone} label="סמול טוק ויצירת קשר ראשוני" />
+          <Check on={s.goalsIntroDone} label="הצגת מטרות + העסק שלנו (עד 2 דקות) + איך תיראה הפגישה" />
+        </div>
+
+        <div className="sc-section">
+          <div className="sc-section-title">שאלות גילוי</div>
+          <QA q="1. מה אתה עושה כיום?" a={s.q1_currentJob} />
+          <QA q="2. מה העסק שאת/ה רוצה להקים? יש לך כבר רעיון מגובש?" a={s.q2_businessIdea} />
+          <QA q="3. למה דווקא העסק הזה?" a={s.q3_whyBusiness} />
+          <QA q="4. מה עצר אותך עד עכשיו?" a={s.q4_whatStopped} />
+          <QA q="5. למה דווקא עכשיו?" a={s.q5_whyNow} />
+          <QA q="6. כמה זמן את/ה מוכן להשקיע בעסק בשבוע?" a={s.q6_timeWeek} />
+          <QA q="7. כמה אתה רוצה שהעסק יכניס לך?" a={s.q7_targetIncome} />
+        </div>
+
+        <div className="sc-section">
+          <div className="sc-section-title">שאלות פתיחת הדגמה</div>
+          <div className="sc-qa">
+            <div className="sc-qa-q">
+              <Check on={s.demoQ1_check} label="“נניח ואני מראה לך עכשיו את המערכת והיא פותרת לך את מה שתיארת — מה צריך לקרות כדי שתצא מהשיחה הזו ותרגיש שעשית את הצעד הנכון?”" />
+            </div>
+            {s.demoQ1_note && <div className="sc-qa-a">{s.demoQ1_note}</div>}
+          </div>
+          <div className="sc-rating-row">
+            <div className="sc-rating-q">מ-1 עד 10, כמה את/ה רוצה להקים את העסק?</div>
+            <div className="sc-rating-val">{s.demoQ2_rating ? `${s.demoQ2_rating} / 10` : "—"}</div>
+          </div>
+        </div>
+
+        <div className="sc-section">
+          <div className="sc-section-title">הצגת פתרון ומחיר</div>
+          <Check on={s.solutionPresented} label="הצגת פתרון ופיצ׳רים לפי בעיות שהעלה הלקוח" />
+          <Check on={s.pricingPresented} label="הצגת מחיר" />
+          <Check on={s.letClientReact} label="ניתן ללקוח להגיב ראשון אחרי הצגת המחיר" />
+        </div>
+
+        <div className="sc-section">
+          <div className="sc-section-title">תוצאה</div>
+          <div className="sc-outcome-grid">
+            <div>
+              <div className="sc-lbl">האם בוצעה רכישה</div>
+              <div className="sc-val"><strong>{s.purchased ? "כן" : "לא"}</strong></div>
+            </div>
+            {s.purchased && (
+              <div>
+                <div className="sc-lbl">סוג תכנית</div>
+                <div className="sc-val">{s.purchaseType === "regular" ? "רגילה" : s.purchaseType === "special" ? "מיוחדת" : "—"}</div>
+              </div>
+            )}
+          </div>
+          {s.purchased && s.purchaseType === "special" && s.purchaseDetails && (
+            <div className="sc-qa" style={{ marginTop: 8 }}>
+              <div className="sc-qa-q">פירוט תכנית מיוחדת</div>
+              <div className="sc-qa-a">{s.purchaseDetails}</div>
+            </div>
+          )}
+          {s.objections && (
+            <div className="sc-qa" style={{ marginTop: 8 }}>
+              <div className="sc-qa-q">התנגדויות / חששות שעלו</div>
+              <div className="sc-qa-a">{s.objections}</div>
+            </div>
+          )}
+        </div>
+
+        <div className="sc-section">
+          <div className="sc-section-title">סיכום שיחה</div>
+          <div className={"sc-summary " + (s.summary ? "" : "empty")}>{s.summary || "—"}</div>
+        </div>
+
+        <div className="sc-section">
+          <div className="sc-section-title">מעקב פנימי</div>
+          <Check on={s.uploadedToMonday} label="הועלה לכרטיס לקוח ב-Monday" />
+          <div className="sc-outcome-grid">
+            {(s.nextStep || s.nextStepDate) && (
+              <div>
+                <div className="sc-lbl">שלב הבא</div>
+                <div className="sc-val">{s.nextStep || "—"}{s.nextStepDate ? ` · ${s.nextStepDate}` : ""}</div>
+              </div>
+            )}
+            {likelihood && (
+              <div>
+                <div className="sc-lbl">סיכוי המרה</div>
+                <div className="sc-val">{likelihood}</div>
+              </div>
+            )}
+            {stars && (
+              <div>
+                <div className="sc-lbl">דירוג איכות השיחה</div>
+                <div className="sc-val sc-stars">{stars}</div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     );
   },

@@ -188,7 +188,7 @@ function sanitizeForCounterparty(doc) {
   };
 }
 
-const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer, onOpenSavedSigs, onDelete, adminEmail, onLogout }) => {
+const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer, onNewSalesCall, onOpenSavedSigs, onDelete, adminEmail, onLogout }) => {
   const [drag, setDrag] = useStateA(false);
   const fileRef = React.useRef(null);
   const counts = useMemoA(() => {
@@ -243,6 +243,9 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
             <p className="sub">העלה מסמך, סמן איפה לחתום ולהחתים, וקבל קישור לשליחה.</p>
           </div>
           <div className="library-cta">
+            <button className="btn btn-secondary btn-lg" onClick={() => onNewSalesCall && onNewSalesCall()}>
+              <Icon name="users" size={16} /> סיכום שיחת מכירה
+            </button>
             <button className="btn btn-secondary btn-lg" onClick={() => onNewBankTransfer && onNewBankTransfer()}>
               <Icon name="shield-check" size={16} /> העברה לבנק
             </button>
@@ -1156,6 +1159,253 @@ const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedReso
   );
 };
 
+const SC_AGENT_OPTIONS = ["", "אורי", "עמית"];
+const SC_CHANNEL_OPTIONS = [
+  { v: "phone", l: "טלפון" },
+  { v: "zoom", l: "Zoom" },
+  { v: "meet", l: "Google Meet" },
+  { v: "in_person", l: "פגישה פיזית" },
+  { v: "whatsapp", l: "WhatsApp" },
+];
+const SC_LEAD_SOURCES = ["", "Instagram", "TikTok", "WhatsApp", "המלצה", "אתר", "מודעה", "אחר"];
+
+const SalesCallFormModal = ({ open, onClose, onSubmit, initial }) => {
+  const seedData = () => {
+    const base = window.normalizeSalesCallData ? window.normalizeSalesCallData(initial) : { ...(initial || {}) };
+    if (!base.callDate && !initial) base.callDate = todayDateString();
+    return base;
+  };
+
+  const [data, setData] = useStateA(seedData);
+  const [openSection, setOpenSection] = useStateA("meta");
+
+  useEffectA(() => {
+    if (open) {
+      setData(seedData());
+      setOpenSection("meta");
+    }
+  }, [open]);
+
+  const update = (patch) => setData((d) => ({ ...d, ...patch }));
+
+  const canSave = (data.clientName || "").trim().length > 0;
+
+  // Compact check-row component
+  const CheckRow = ({ k, label }) => (
+    <label className="sc-check-row" onClick={(e) => e.stopPropagation()}>
+      <input type="checkbox" checked={!!data[k]} onChange={(e) => update({ [k]: e.target.checked })} />
+      <span>{label}</span>
+    </label>
+  );
+
+  const TextArea = ({ k, placeholder, rows = 2 }) => (
+    <textarea
+      rows={rows}
+      value={data[k] || ""}
+      onChange={(e) => update({ [k]: e.target.value })}
+      placeholder={placeholder || ""}
+      className="sc-textarea"
+    />
+  );
+
+  return (
+    <Modal open={open} onClose={onClose} wide
+      title={initial ? "עריכת סיכום שיחה" : "סיכום שיחת מכירה חדש"}
+      subtitle="מלא/י את הסקשנים הרלוונטיים. ניתן לחזור ולערוך מאוחר יותר.">
+      <div className="qform">
+
+        <QuoteFormSection
+          title="פרטי לקוח ופגישה"
+          isOpen={openSection === "meta"}
+          onToggleOpen={() => setOpenSection(openSection === "meta" ? null : "meta")}
+        >
+          <label className="qfield">
+            <span>שם הלקוח <span className="req">*</span></span>
+            <input value={data.clientName} onChange={(e) => update({ clientName: e.target.value })} placeholder="שם פרטי + שם משפחה" autoFocus />
+          </label>
+          <div className="qgrid">
+            <label className="qfield">
+              <span>תאריך השיחה</span>
+              <input value={data.callDate} onChange={(e) => update({ callDate: e.target.value })} dir="ltr" placeholder="DD.MM.YYYY" />
+            </label>
+            <label className="qfield">
+              <span>שעה</span>
+              <input value={data.callTime} onChange={(e) => update({ callTime: e.target.value })} dir="ltr" placeholder="14:30" />
+            </label>
+          </div>
+          <div className="qgrid">
+            <label className="qfield">
+              <span>מי ניהל את השיחה</span>
+              <select value={data.agent} onChange={(e) => update({ agent: e.target.value })}>
+                {SC_AGENT_OPTIONS.map((o) => <option key={o} value={o}>{o || "— בחר/י —"}</option>)}
+              </select>
+            </label>
+            <label className="qfield">
+              <span>ערוץ</span>
+              <select value={data.callChannel} onChange={(e) => update({ callChannel: e.target.value })}>
+                {SC_CHANNEL_OPTIONS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="qgrid">
+            <label className="qfield">
+              <span>משך השיחה (אופציונלי)</span>
+              <input value={data.callDuration} onChange={(e) => update({ callDuration: e.target.value })} placeholder="22 דקות" />
+            </label>
+            <label className="qfield">
+              <span>מקור הליד</span>
+              <select value={data.leadSource} onChange={(e) => update({ leadSource: e.target.value })}>
+                {SC_LEAD_SOURCES.map((o) => <option key={o} value={o}>{o || "— בחר/י —"}</option>)}
+              </select>
+            </label>
+          </div>
+        </QuoteFormSection>
+
+        <QuoteFormSection
+          title="פתיחה (סימוני ✓)"
+          isOpen={openSection === "open"}
+          onToggleOpen={() => setOpenSection(openSection === "open" ? null : "open")}
+        >
+          <CheckRow k="smallTalkDone" label="סמול טוק ויצירת קשר ראשוני" />
+          <CheckRow k="goalsIntroDone" label='הצגת מטרות + העסק שלנו (עד 2 דקות) + איך תיראה הפגישה' />
+        </QuoteFormSection>
+
+        <QuoteFormSection
+          title="שאלות גילוי"
+          isOpen={openSection === "discover"}
+          onToggleOpen={() => setOpenSection(openSection === "discover" ? null : "discover")}
+        >
+          <label className="qfield"><span>1. מה אתה עושה כיום?</span><TextArea k="q1_currentJob" /></label>
+          <label className="qfield"><span>2. מה העסק שאת/ה רוצה להקים? יש לך כבר רעיון מגובש?</span><TextArea k="q2_businessIdea" /></label>
+          <label className="qfield"><span>3. למה דווקא העסק הזה?</span><TextArea k="q3_whyBusiness" /></label>
+          <label className="qfield"><span>4. מה עצר אותך עד עכשיו?</span><TextArea k="q4_whatStopped" /></label>
+          <label className="qfield"><span>5. למה דווקא עכשיו?</span><TextArea k="q5_whyNow" /></label>
+          <label className="qfield"><span>6. כמה זמן את/ה מוכן להשקיע בעסק בשבוע?</span><TextArea k="q6_timeWeek" /></label>
+          <label className="qfield"><span>7. כמה אתה רוצה שהעסק יכניס לך?</span><TextArea k="q7_targetIncome" /></label>
+        </QuoteFormSection>
+
+        <QuoteFormSection
+          title="שאלות פתיחת הדגמה"
+          isOpen={openSection === "demo"}
+          onToggleOpen={() => setOpenSection(openSection === "demo" ? null : "demo")}
+        >
+          <CheckRow k="demoQ1_check" label='“נניח ואני מראה לך עכשיו את המערכת והיא פותרת לך את מה שתיארת — מה צריך לקרות כדי שתצא מהשיחה הזו ותרגיש שעשית את הצעד הנכון?”' />
+          <label className="qfield">
+            <span>תשובת הלקוח (אופציונלי)</span>
+            <TextArea k="demoQ1_note" placeholder="תקציר התשובה" />
+          </label>
+          <label className="qfield">
+            <span>מ-1 עד 10, כמה את/ה רוצה להקים את העסק?</span>
+            <input value={data.demoQ2_rating} onChange={(e) => update({ demoQ2_rating: e.target.value })} dir="ltr" placeholder="1—10" />
+          </label>
+        </QuoteFormSection>
+
+        <QuoteFormSection
+          title="הצגת פתרון ומחיר (סימוני ✓)"
+          isOpen={openSection === "pitch"}
+          onToggleOpen={() => setOpenSection(openSection === "pitch" ? null : "pitch")}
+        >
+          <CheckRow k="solutionPresented" label="הצגת פתרון ופיצ׳רים לפי בעיות שהעלה הלקוח" />
+          <CheckRow k="pricingPresented" label="הצגת מחיר" />
+          <CheckRow k="letClientReact" label='לאחר ההצגה — לתת ללקוח להגיב ראשון' />
+        </QuoteFormSection>
+
+        <QuoteFormSection
+          title="תוצאה"
+          isOpen={openSection === "outcome"}
+          onToggleOpen={() => setOpenSection(openSection === "outcome" ? null : "outcome")}
+        >
+          <CheckRow k="purchased" label="התבצעה רכישה?" />
+          {data.purchased && (
+            <>
+              <label className="qfield">
+                <span>סוג התכנית</span>
+                <div className="qradio-row">
+                  <label className="qradio">
+                    <input type="radio" name="purchaseType" checked={data.purchaseType === "regular"} onChange={() => update({ purchaseType: "regular" })} />
+                    <span>תכנית רגילה</span>
+                  </label>
+                  <label className="qradio">
+                    <input type="radio" name="purchaseType" checked={data.purchaseType === "special"} onChange={() => update({ purchaseType: "special" })} />
+                    <span>תכנית מיוחדת</span>
+                  </label>
+                </div>
+              </label>
+              {data.purchaseType === "special" && (
+                <label className="qfield">
+                  <span>פירוט התכנית המיוחדת</span>
+                  <TextArea k="purchaseDetails" rows={3} placeholder="הנחה / חבילה משולבת / תשלומים מיוחדים / וכו" />
+                </label>
+              )}
+            </>
+          )}
+          <label className="qfield">
+            <span>התנגדויות / חששות שעלו</span>
+            <TextArea k="objections" placeholder="לדוגמה: יקר מדי, אין זמן, אני צריך לחשוב..." />
+          </label>
+        </QuoteFormSection>
+
+        <QuoteFormSection
+          title="סיכום שיחה"
+          isOpen={openSection === "summary"}
+          onToggleOpen={() => setOpenSection(openSection === "summary" ? null : "summary")}
+        >
+          <label className="qfield">
+            <span>סיכום</span>
+            <TextArea k="summary" rows={6} placeholder="נקודות עיקריות, רגעים מכריעים, מה עבד / לא עבד" />
+          </label>
+        </QuoteFormSection>
+
+        <QuoteFormSection
+          title="מעקב פנימי"
+          isOpen={openSection === "internal"}
+          onToggleOpen={() => setOpenSection(openSection === "internal" ? null : "internal")}
+        >
+          <CheckRow k="uploadedToMonday" label="הועלה לכרטיס לקוח ב-Monday" />
+          <div className="qgrid">
+            <label className="qfield">
+              <span>שלב הבא</span>
+              <input value={data.nextStep} onChange={(e) => update({ nextStep: e.target.value })} placeholder="שיחת המשך / שליחת הצעה" />
+            </label>
+            <label className="qfield">
+              <span>תאריך מעקב</span>
+              <input value={data.nextStepDate} onChange={(e) => update({ nextStepDate: e.target.value })} dir="ltr" placeholder="DD.MM.YYYY" />
+            </label>
+          </div>
+          <div className="qgrid">
+            <label className="qfield">
+              <span>סיכוי המרה</span>
+              <select value={data.conversionLikelihood} onChange={(e) => update({ conversionLikelihood: e.target.value })}>
+                <option value="">— בחר/י —</option>
+                <option value="low">נמוכה</option>
+                <option value="medium">בינונית</option>
+                <option value="high">גבוהה</option>
+              </select>
+            </label>
+            <label className="qfield">
+              <span>דירוג איכות השיחה (1—5)</span>
+              <select value={data.callRating} onChange={(e) => update({ callRating: e.target.value })}>
+                <option value="">— בחר/י —</option>
+                {[1,2,3,4,5].map((n) => <option key={n} value={n}>{n} {"★".repeat(n)}</option>)}
+              </select>
+            </label>
+          </div>
+        </QuoteFormSection>
+
+      </div>
+      <div className="modal-actions">
+        <button className="btn btn-primary" disabled={!canSave} onClick={() => onSubmit({
+          ...data,
+          clientName: (data.clientName || "").trim(),
+        })}>
+          <Icon name={initial ? "check" : "file-plus"} size={16} /> {initial ? "שמירה" : "יצירת סיכום"}
+        </button>
+        <button className="btn btn-ghost" onClick={onClose}>ביטול</button>
+      </div>
+    </Modal>
+  );
+};
+
 const LoginModal = ({ open, onLogin }) => {
   const [email, setEmail] = useStateA("");
   const [pwd, setPwd] = useStateA("");
@@ -1219,6 +1469,8 @@ const App = () => {
   const [quoteFormEditingId, setQuoteFormEditingId] = useStateA(null);
   const [btFormOpen, setBtFormOpen] = useStateA(false);
   const [btFormEditingId, setBtFormEditingId] = useStateA(null);
+  const [scFormOpen, setScFormOpen] = useStateA(false);
+  const [scFormEditingId, setScFormEditingId] = useStateA(null);
   const [savedSigsOpen, setSavedSigsOpen] = useStateA(false);
   const [savedSigsRefreshKey, setSavedSigsRefreshKey] = useStateA(0);
   const [highlightSigId, setHighlightSigId] = useStateA(null);
@@ -1604,6 +1856,43 @@ const App = () => {
   const openEditQuote = () => { if (activeDoc) { setQuoteFormEditingId(activeDoc.id); setQuoteFormOpen(true); } };
   const openNewBankTransfer = () => { setBtFormEditingId(null); setBtFormOpen(true); };
   const openEditBankTransfer = () => { if (activeDoc) { setBtFormEditingId(activeDoc.id); setBtFormOpen(true); } };
+  const openNewSalesCall = () => { setScFormEditingId(null); setScFormOpen(true); };
+  const openEditSalesCall = () => { if (activeDoc) { setScFormEditingId(activeDoc.id); setScFormOpen(true); } };
+
+  const onSalesCallFormSubmit = (data) => {
+    if (scFormEditingId) {
+      const target = docs.find((d) => d.id === scFormEditingId);
+      if (target) {
+        const updated = {
+          ...target,
+          salesCallData: data,
+          name: `סיכום שיחה · ${data.clientName || "לקוח"}`,
+          counterparty: data.clientName || "לקוח פוטנציאלי",
+        };
+        updateDoc(updated);
+        showToast("הסיכום עודכן");
+      }
+    } else {
+      const id = "doc-" + genId();
+      const newDoc = {
+        id,
+        name: `סיכום שיחה · ${data.clientName || "לקוח"}`,
+        template: "sales_call",
+        counterparty: data.clientName || "לקוח פוטנציאלי",
+        status: "draft",
+        createdAt: Date.now(),
+        salesCallData: data,
+        fields: [],  // internal doc — no signature fields
+        sender: "איי או טי סטארטפס בע״מ",
+      };
+      setDocs((prev) => [newDoc, ...prev]);
+      setActiveDocId(id);
+      setView("editor");
+      showToast("הסיכום נוצר");
+    }
+    setScFormOpen(false);
+    setScFormEditingId(null);
+  };
 
   const onBankTransferFormSubmit = (data) => {
     if (btFormEditingId) {
@@ -1844,6 +2133,7 @@ const App = () => {
         onNew={newBlankDoc}
         onNewQuote={openNewQuote}
         onNewBankTransfer={openNewBankTransfer}
+        onNewSalesCall={openNewSalesCall}
         onOpenSavedSigs={() => setSavedSigsOpen(true)}
         onDelete={deleteDoc}
         adminEmail={adminAuth && adminAuth.email}
@@ -1888,6 +2178,7 @@ const App = () => {
             onOpenShare={openShare}
             onEditQuote={activeDoc.template === "flowbiz_quote" && !ownerLocked ? openEditQuote : null}
             onEditBankTransfer={activeDoc.template === "bank_transfer" && !ownerLocked ? openEditBankTransfer : null}
+            onEditSalesCall={activeDoc.template === "sales_call" && !ownerLocked ? openEditSalesCall : null}
             mySignature={mySignature}
             onNeedSignature={(after, opts) => requestSignature(after, opts)}
             viewMode={ownerLocked ? "readonly" : "owner"}
@@ -1979,6 +2270,13 @@ const App = () => {
         suggestedResolutionNumber={nextResolutionNumber(docs)}
         onOpenSavedSigs={() => setSavedSigsOpen(true)}
         onVendorsChanged={() => setVendorBump((v) => v + 1)}
+      />
+
+      <SalesCallFormModal
+        open={scFormOpen}
+        onClose={() => { setScFormOpen(false); setScFormEditingId(null); }}
+        onSubmit={onSalesCallFormSubmit}
+        initial={scFormEditingId ? (docs.find((d) => d.id === scFormEditingId)?.salesCallData || null) : null}
       />
 
       <SavedSignaturesModal
