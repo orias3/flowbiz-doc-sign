@@ -1943,6 +1943,12 @@ const App = () => {
       // Sort by page index so we add them to the PDF in order.
       pageEls.sort((a, b) => Number(a.dataset.pageIdx || 0) - Number(b.dataset.pageIdx || 0));
 
+      // Track whether we've added the first page yet so we can call addPage()
+      // correctly when content spans multiple slices/pages.
+      let firstPageAdded = false;
+      const SCALE = 2;                       // canvas oversampling
+      const CANVAS_PAGE_HEIGHT = PH * SCALE; // how tall one A4 page is in canvas pixels
+
       for (let pi = 0; pi < pageEls.length; pi++) {
         const original = pageEls[pi];
         // Clone off-screen at natural A4 size — avoids messing with the visible
@@ -1976,20 +1982,41 @@ const App = () => {
         document.body.appendChild(wrap);
 
         try {
+          const totalH = Math.max(PH, clone.scrollHeight);
           const canvas = await window.html2canvas(clone, {
-            scale: 2,
+            scale: SCALE,
             backgroundColor: "#fff",
             useCORS: true,
             allowTaint: true,
             logging: false,
             width: PW,
-            height: Math.max(PH, clone.scrollHeight),
+            height: totalH,
             windowWidth: PW,
-            windowHeight: Math.max(PH, clone.scrollHeight),
+            windowHeight: totalH,
           });
-          const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-          if (pi > 0) pdf.addPage([PW, PH]);
-          pdf.addImage(dataUrl, "JPEG", 0, 0, PW, PH);
+          // Slice the captured canvas into A4-tall pages. The previous version
+          // forced the whole tall capture into one PDF page, which squished
+          // content vertically when the content was longer than one A4.
+          const sliceCount = Math.max(1, Math.ceil(canvas.height / CANVAS_PAGE_HEIGHT));
+          for (let s = 0; s < sliceCount; s++) {
+            const sliceCanvas = document.createElement("canvas");
+            sliceCanvas.width = canvas.width;
+            sliceCanvas.height = CANVAS_PAGE_HEIGHT;
+            const sctx = sliceCanvas.getContext("2d");
+            sctx.fillStyle = "#fff";
+            sctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+            const srcY = s * CANVAS_PAGE_HEIGHT;
+            const sliceSrcH = Math.min(CANVAS_PAGE_HEIGHT, canvas.height - srcY);
+            sctx.drawImage(
+              canvas,
+              0, srcY, canvas.width, sliceSrcH,
+              0, 0, canvas.width, sliceSrcH
+            );
+            const dataUrl = sliceCanvas.toDataURL("image/jpeg", 0.92);
+            if (firstPageAdded) pdf.addPage([PW, PH]);
+            pdf.addImage(dataUrl, "JPEG", 0, 0, PW, PH);
+            firstPageAdded = true;
+          }
         } finally {
           document.body.removeChild(wrap);
         }
