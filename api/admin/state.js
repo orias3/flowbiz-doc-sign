@@ -1,4 +1,4 @@
-import { put, head } from '@vercel/blob';
+import { put } from '@vercel/blob';
 
 const ADMIN_USERS = new Set([
   'orias3@gmail.com',
@@ -9,6 +9,7 @@ const ADMIN_PASSWORD = 'FlowBiz517268330';
 // Obscure path for the shared admin state blob — avoids casual discovery via
 // a guessable URL even though the blob is public-readable on Vercel.
 const STATE_PATH = 'admin/_aot_shared_state_d8f3k29l.json';
+const BLOB_BASE = 'https://bjitaw3flhgszddh.public.blob.vercel-storage.com';
 
 function authorizedEmail(req) {
   const auth = req.headers.authorization || '';
@@ -54,8 +55,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     try {
-      const meta = await head(STATE_PATH);
-      const r = await fetch(meta.url, { cache: 'no-store' });
+      const r = await fetch(`${BLOB_BASE}/${STATE_PATH}`, { cache: 'no-store' });
       if (!r.ok) {
         return res.status(200).json({ docs: [], vendors: [], savedSignatures: [], _meta: { exists: false } });
       }
@@ -73,8 +73,7 @@ export default async function handler(req, res) {
     // Read current server state to compute next version + detect conflicts.
     let prev = null;
     try {
-      const meta = await head(STATE_PATH);
-      const r = await fetch(meta.url, { cache: 'no-store' });
+      const r = await fetch(`${BLOB_BASE}/${STATE_PATH}`, { cache: 'no-store' });
       if (r.ok) prev = await r.json();
     } catch {}
     const prevVersion = (prev && prev._meta && prev._meta.version) || 0;

@@ -1,5 +1,7 @@
-import { put, head } from '@vercel/blob';
+import { put } from '@vercel/blob';
 import nodemailer from 'nodemailer';
+
+const BLOB_BASE = 'https://bjitaw3flhgszddh.public.blob.vercel-storage.com';
 
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 function genId(len = 8) {
@@ -129,8 +131,7 @@ function signedEmail({ origin, id, doc }) {
 }
 
 async function readDoc(id) {
-  const meta = await head(`docs/${id}.json`);
-  const r = await fetch(meta.url, { cache: 'no-store' });
+  const r = await fetch(`${BLOB_BASE}/docs/${id}.json`, { cache: 'no-store' });
   if (!r.ok) throw new Error('fetch_failed');
   return r.json();
 }

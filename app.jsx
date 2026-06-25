@@ -1635,7 +1635,7 @@ const App = () => {
   useEffectA(() => {
     let cancelled = false;
     const refreshShared = async () => {
-      const shared = docs.filter((d) => d.shareId);
+      const shared = docs.filter((d) => d.shareId && d.status !== "completed");
       if (!shared.length) return;
       const updates = await Promise.all(shared.map(async (d) => {
         try {
@@ -1659,8 +1659,7 @@ const App = () => {
     refreshShared();
     const onFocus = () => refreshShared();
     window.addEventListener("focus", onFocus);
-    const interval = setInterval(refreshShared, 30000);
-    return () => { cancelled = true; window.removeEventListener("focus", onFocus); clearInterval(interval); };
+    return () => { cancelled = true; window.removeEventListener("focus", onFocus); };
   }, [docs.length]);
 
   const showToast = (msg) => {setToast(msg);setTimeout(() => setToast(""), 2200);};
@@ -1779,6 +1778,24 @@ const App = () => {
   const openEditBankTransfer = () => { if (activeDoc) { setBtFormEditingId(activeDoc.id); setBtFormOpen(true); } };
   const openNewSalesCall = () => { setScFormEditingId(null); setScFormOpen(true); };
   const openEditSalesCall = () => { if (activeDoc) { setScFormEditingId(activeDoc.id); setScFormOpen(true); } };
+
+  // Re-open a locked doc for editing. Clears the share id (so future shares
+  // generate a new link) and resets status back to draft. Existing share URLs
+  // sent to clients keep working but no longer reflect new edits.
+  const onUnlockDoc = () => {
+    if (!activeDoc) return;
+    const msg = activeDoc.status === "completed"
+      ? "המסמך נחתם והושלם. לפתוח לעריכה מחדש? קישור קיים שנשלח לצד השני לא יתעדכן עם השינויים החדשים."
+      : "המסמך נשלח וננעל. לפתוח לעריכה מחדש? קישור קיים שנשלח לצד השני לא יתעדכן עם השינויים החדשים. ייווצר קישור חדש בלחיצה הבאה על שליחה.";
+    if (!confirm(msg)) return;
+    const unlocked = { ...activeDoc, status: "draft" };
+    delete unlocked.shareId;
+    delete unlocked.shareToken;
+    delete unlocked.completedAt;
+    delete unlocked.signedBy;
+    updateDoc(unlocked);
+    showToast("המסמך נפתח לעריכה");
+  };
 
   const onSalesCallFormSubmit = (data) => {
     if (scFormEditingId) {
@@ -2127,6 +2144,7 @@ const App = () => {
             onEditQuote={activeDoc.template === "flowbiz_quote" && !ownerLocked ? openEditQuote : null}
             onEditBankTransfer={activeDoc.template === "bank_transfer" && !ownerLocked ? openEditBankTransfer : null}
             onEditSalesCall={activeDoc.template === "sales_call" && !ownerLocked ? openEditSalesCall : null}
+            onUnlock={ownerLocked ? onUnlockDoc : null}
             mySignature={mySignature}
             onNeedSignature={(after, opts) => requestSignature(after, opts)}
             viewMode={ownerLocked ? "readonly" : "owner"}

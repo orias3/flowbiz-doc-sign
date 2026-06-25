@@ -8,7 +8,7 @@ const TOOLS = [
   { id: "text", name: "שם / טקסט", desc: "שורה חופשית", icon: "type", w: 180, h: 32 },
 ];
 
-const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTransfer, onEditSalesCall, mySignature, onNeedSignature, viewMode = "owner", locked = false }) => {
+const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTransfer, onEditSalesCall, onUnlock, mySignature, onNeedSignature, viewMode = "owner", locked = false }) => {
   // viewMode: 'owner' (full editor) | 'counterparty' (fills their fields only) | 'readonly' (no editing)
   const isReadOnly = viewMode === "readonly" || locked;
   const [tool, setTool] = useStateE(null);
@@ -391,6 +391,11 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
                   <Icon name="copy" size={13}/> העתק
                 </button>
               </div>
+            )}
+            {onUnlock && (
+              <button className="btn btn-secondary btn-sm" style={{ width: "100%", justifyContent: "center", marginTop: 12 }} onClick={onUnlock}>
+                <Icon name="edit" size={14}/> פתח לעריכה מחדש
+              </button>
             )}
           </div>
         )}
