@@ -169,6 +169,16 @@ const QUOTE_DEFAULTS = {
   businessName: "",
   quoteDate: "",
 
+  // Header / hero — all editable
+  headerCo: "A.O.T STARTAPPS LTD",
+  headerSub: "מפעילה את פלטפורמת FlowBiz",
+  eyebrow: "הצעת מחיר · QUOTE",
+  heroTitle: "מהרעיון ועד ללקוח הראשון — הכל במקום אחד.",
+  heroLead: "חבילת ליווי מלאה להקמת עסק: גישה למערכת FlowBiz, פגישה אישית עם מנכ״ל החברה, וקהילה פעילה של יזמים — הכל תחת קורת גג אחת.",
+  cardsTitle: "מה תקבלו בחבילה",
+  featuresTitle: "חלק מהפיצ׳רים הכלולים במערכת",
+  pricePill: "מחיר מבצע היכרות",
+
   // Pricing block
   packageName: "פלטפורמת FlowBiz",
   packageSub: "שלושה חודשים ראשונים · התחייבות מינימלית · ביטול בכל עת",
@@ -181,6 +191,7 @@ const QUOTE_DEFAULTS = {
   // Section visibility
   showCards: true,
   showFeatures: true,
+  showBlocks: false,
   showAccounting: true,
   showRefund: true,
   showContact: true,
@@ -203,6 +214,69 @@ const QUOTE_DEFAULTS = {
     "דף נחיתה בקליק",
     "שיווק ומכירות",
     "FlowBiz AI",
+  ],
+
+  // Custom content blocks — flexible, fully-editable rich body. Seeded with the
+  // founder-accelerator program so it's ready to enable + tweak; hidden by
+  // default (showBlocks:false) so existing/standard quotes are unaffected.
+  blocksTitle: "",
+  blocks: [
+    { id: "blk-title", type: "heading", text: "תוכנית האצה למייסדים" },
+    { id: "blk-by", type: "subheading", text: "מוגש על ידי: עמית בן שמחון | FlowBiz" },
+
+    { id: "blk-goals-h", type: "heading", text: "מטרות העל של התוכנית" },
+    { id: "blk-goal1", type: "labeled", label: "POC מיידי", text: "לעקוף את חסמי הרגולציה והייצור ההמוני על ידי בניית מודל עוקף המאפשר הוכחת היתכנות חיה ונושמת בשטח באופן מיידי." },
+    { id: "blk-goal2", type: "labeled", label: "חינוך שוק ממוקד", text: "לפצח את הדרך הנכונה להחדיר מוצר חדש (אלכוהול-חלבון) לצרכן הישראלי החשדן, תוך הגדרה כירורגית של קהל היעד והתאמת המסר אליו." },
+    { id: "blk-goal3", type: "labeled", label: "מיינדסט סטארט-אפ (Scale)", text: "הטמעת שיטות עבודה, מיקוד וקבלת החלטות ברמה הגבוהה ביותר, לצד יצירת חלוקת תפקידים בריאה, יעילה וברורה כבני זוג שהם גם שותפים למסע." },
+
+    { id: "blk-ms-h", type: "heading", text: "מבנה 4 המפגשים (אבני הדרך להשקה)" },
+    {
+      id: "blk-ms1", type: "milestone",
+      title: "אבן דרך 1: מיינדסט עבודה, מיקוד וקפיצה למים.",
+      focusLabel: "המיקוד", focus: "סטארט-אפ מתחיל בראש. נפתח את הפגישה בהטמעת מודל \"שלוש אבנים מרכזיות\" – איך להבדיל בין עיקר לתפל ביומיום, ואיך מייצרים חלוקת עבודה ברורה ובריאה ביניכם כבני זוג/שותפים. רק אחרי שהראש מסודר, נצלול לפרקטיקה: איך עוצרים את התלות במפעל ומייצרים הוכחת היתכנות (POC) מהירה.",
+      valueLabel: "הערך המרכזי", value: "סדר בראש ובזוגיות העסקית, מעבר מסטטוס \"ממתינים\" לסטטוס \"מייצרים תנועה\".",
+      tasksLabel: "הגדרת משימות מהמפגש הראשון",
+      tasks: [
+        "הגדרת \"3 האבנים\" לכל אחד מהשותפים בטווח הארוך והקצר.",
+        "פיצוח מוצר ראשוני לפיילוט ומיפוי של 10 ברים רלוונטיים באזור.",
+      ],
+    },
+    {
+      id: "blk-ms2", type: "milestone",
+      title: "אבן דרך 2: חיתוך השוק ובניית הפיץ' לברים",
+      focusLabel: "המיקוד", focus: "אי אפשר למכור ל\"כולם\". נלמד וניישם את אפיון הלקוח לפי \"שיטת הפאי\" – איך חותכים את השוק לנישות מדויקות, מזהים מי המאמצים המוקדמים (Early Adopters) שהכי צמאים למשקה חלבון-אלכוהולי, ומתמקדים רק בהם. ניעזר כאן בשלב אפיון לקוח מפלטפורמת FlowBiz. על בסיס הפלח הזה, נבנה את \"פיץ' המכירה\" לבעל הבר כדי שיבין למה שווה לו להכניס אתכם.",
+      valueLabel: "הערך המרכזי", value: "הבנה כירורגית של מי הלקוח ואפיון מדויק של הנישה הנבחרת. בניית סיפור שיכבוש את בעלי הברים.",
+      tasksLabel: "הגדרת משימות מהמפגש השני",
+      tasks: [
+        "יציאה לשטח לפגישות עם בעלי הברים מהרשימה עם הפיץ' המזוקק.",
+        "השגת לפחות \"כן\" אחד עקרוני לפיילוט.",
+      ],
+    },
+    {
+      id: "blk-ms3", type: "milestone",
+      title: "אבן דרך 3: אסטרטגיית פניות חמות וסגירת עסקת הפיילוט",
+      focusLabel: "המיקוד", focus: "איך לא לשרוף כסף על קמפיינים לפני POC. נלמד וניישם את \"אסטרטגיית הפניות החמות\" – איך למנף מעגלים קרובים, קשרים אישיים וקהילות כדי להביא את הלקוחות/הטועמים הראשונים לפיילוט בדרך היעילה ביותר (ניעזר כאן בשלב אסטרטגיית פניות חמות מפלטפורמת FlowBiz). בחלק הפרקטי: נסגור את מודל התמחור מול הבר (מי סופג מה) ונכין את חומרי ההסברה לנקודת המכירה.",
+      valueLabel: "הערך המרכזי", value: "כלים אמיתיים של גרילה-מרקטינג להבאת טראפיק לבר מבלי להוציא שקל על שיווק ממומן.",
+      tasksLabel: "הגדרת משימות מהמפגש השלישי",
+      tasks: [
+        "חתימה על הסכם הפיילוט עם הבר.",
+        "הדפסת תפריטי שולחן/תחתיות והדרכת הברמנים.",
+        "הפעלת \"מכונת הפניות החמות\" כדי לוודא שביום ההשקה הבר מלא בקהל היעד.",
+      ],
+    },
+    {
+      id: "blk-ms4", type: "milestone",
+      title: "אבן דרך 4: השקה חיה, ניתוח דאטה וחיבור מלא ל-FlowBiz",
+      focusLabel: "המיקוד", focus: "ניתוח המציאות בשטח. מה עבד? מה הפידבק על הטעם? איך הברמנים התמודדו? נלמד איך לאסוף את הדאטה הזה כדי לשפר את המוצר ואת הפיץ'. במקביל, נחבר את העשייה הפיזית ל-CRM במערכת ונגדיר את בוט הוואטסאפ החדש להרחבת הפיילוט ולמעקב אחרי לידים חדשים.",
+      valueLabel: "הערך המרכזי", value: "הפיכת ההתלהבות של הפיילוט לשיטת עבודה מנוהלת ואוטומטית, שמכינה אתכם לצמיחה (Scale) רגע אחרי שהרגולציה תשתחרר.",
+      tasksLabel: "הגדרת משימות מהפגישה הרביעית",
+      tasks: [
+        "השלמת ה-POC.",
+        "תכנון שכפול המודל לעוד ברים רלוונטיים.",
+      ],
+    },
+    { id: "blk-invest", type: "callout", title: "השקעה: 4,000 ₪ (בתוספת מע\"מ)", text: "כולל פתיחת תיק ברשויות המס בשווי 249₪, חודש מתנה במערכת בשווי 350₪ וחודש ליווי רואה חשבון מוסמך בשווי 179₪." },
+    { id: "blk-time", type: "callout", title: "זמנים", text: "4 מפגשים של שעה וחצי, בתדירות של אחת לשבועיים (להשארת זמן עבודה לשטח)." },
   ],
 
   // Accounting (page 2)
@@ -237,11 +311,69 @@ function normalizeQuoteData(q) {
   if (!Array.isArray(merged.features)) merged.features = QUOTE_DEFAULTS.features;
   if (!Array.isArray(merged.accountingRows)) merged.accountingRows = QUOTE_DEFAULTS.accountingRows;
   if (!Array.isArray(merged.accountingChecks)) merged.accountingChecks = QUOTE_DEFAULTS.accountingChecks;
+  // blocks: keep whatever the doc has (may be an empty array the user cleared);
+  // only fall back to the seeded default when the field is missing entirely.
+  if (!Array.isArray(merged.blocks)) merged.blocks = QUOTE_DEFAULTS.blocks;
   return merged;
 }
 
 function interpolate(tpl, vars) {
   return String(tpl || "").replace(/\{(\w+)\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ""));
+}
+
+// Render one custom content block by type. Returns null for unknown/empty.
+function renderQuoteBlock(b) {
+  if (!b) return null;
+  if (b.type === "heading") {
+    return b.text ? <h2 key={b.id} className="quote-h2 qblk-heading">{b.text}</h2> : null;
+  }
+  if (b.type === "subheading") {
+    return b.text ? <div key={b.id} className="qblk-subheading">{b.text}</div> : null;
+  }
+  if (b.type === "paragraph") {
+    return b.text ? <p key={b.id} className="qblk-paragraph">{b.text}</p> : null;
+  }
+  if (b.type === "labeled") {
+    return (
+      <p key={b.id} className="qblk-labeled">
+        {b.label && <strong className="qblk-label">{b.label}: </strong>}
+        {b.text}
+      </p>
+    );
+  }
+  if (b.type === "callout") {
+    return (
+      <div key={b.id} className="qblk-callout">
+        {b.title && <div className="qblk-callout-title">{b.title}</div>}
+        {b.text && <div className="qblk-callout-text">{b.text}</div>}
+      </div>
+    );
+  }
+  if (b.type === "milestone") {
+    const tasks = Array.isArray(b.tasks) ? b.tasks.filter((t) => String(t || "").trim()) : [];
+    return (
+      <div key={b.id} className="qblk-milestone">
+        {b.title && <div className="qblk-ms-title">{b.title}</div>}
+        {b.focus && (
+          <p className="qblk-ms-row">
+            <strong>{(b.focusLabel || "המיקוד")}: </strong>{b.focus}
+          </p>
+        )}
+        {b.value && (
+          <p className="qblk-ms-row">
+            <strong>{(b.valueLabel || "הערך המרכזי")}: </strong>{b.value}
+          </p>
+        )}
+        {tasks.length > 0 && (
+          <div className="qblk-ms-tasks">
+            <div className="qblk-ms-tasks-label">{b.tasksLabel || "משימות"}:</div>
+            <ul>{tasks.map((t, i) => <li key={i}>{t}</li>)}</ul>
+          </div>
+        )}
+      </div>
+    );
+  }
+  return null;
 }
 
 window.QUOTE_DEFAULTS = QUOTE_DEFAULTS;
@@ -428,18 +560,16 @@ DOC_TEMPLATES.flowbiz_quote = {
         <div className="page-content quote-page">
           <div className="quote-head">
             <div className="quote-head-info">
-              <div className="quote-head-co">A.O.T STARTAPPS LTD</div>
-              <div className="quote-head-sub">מפעילה את פלטפורמת FlowBiz</div>
+              <div className="quote-head-co">{q.headerCo}</div>
+              {q.headerSub && <div className="quote-head-sub">{q.headerSub}</div>}
               <div className="quote-head-sub">טל׳ {q.phone}</div>
             </div>
             <img src="assets/logo.png" alt="FlowBiz" className="quote-head-logo" />
           </div>
           <hr className="quote-hr" />
-          <div className="quote-eyebrow">הצעת מחיר · QUOTE</div>
-          <h1 className="quote-h1">מהרעיון ועד ללקוח הראשון<br/>— הכל במקום אחד.</h1>
-          <p className="quote-lead">
-            חבילת ליווי מלאה להקמת עסק: גישה למערכת FlowBiz, פגישה אישית עם מנכ״ל החברה, וקהילה פעילה של יזמים — הכל תחת קורת גג אחת.
-          </p>
+          {q.eyebrow && <div className="quote-eyebrow">{q.eyebrow}</div>}
+          {q.heroTitle && <h1 className="quote-h1">{q.heroTitle}</h1>}
+          {q.heroLead && <p className="quote-lead">{q.heroLead}</p>}
 
           <div className="quote-info-box">
             <div className="quote-info-cell">
@@ -458,7 +588,7 @@ DOC_TEMPLATES.flowbiz_quote = {
 
           {q.showCards && q.cards.length > 0 && (
             <>
-              <h2 className="quote-h2">מה תקבלו בחבילה</h2>
+              {q.cardsTitle && <h2 className="quote-h2">{q.cardsTitle}</h2>}
               <div className="quote-cards">
                 {q.cards.map((c, i) => (
                   <div key={i} className="quote-card">
@@ -472,7 +602,7 @@ DOC_TEMPLATES.flowbiz_quote = {
 
           {q.showFeatures && q.features.length > 0 && (
             <>
-              <h2 className="quote-h2">חלק מהפיצ׳רים הכלולים במערכת</h2>
+              {q.featuresTitle && <h2 className="quote-h2">{q.featuresTitle}</h2>}
               <div className="quote-features">
                 {q.features.map((f, i) => (
                   <div key={i} className="quote-feature"><Icon name="check" size={13} color="var(--green-600)" /> {f}</div>
@@ -482,7 +612,7 @@ DOC_TEMPLATES.flowbiz_quote = {
           )}
 
           <div className="quote-price-box">
-            <div className="quote-price-pill">מחיר מבצע היכרות</div>
+            <div className="quote-price-pill">{q.pricePill}</div>
             <div className="quote-price-row">
               <div className="quote-price-left">
                 <div className="quote-price-name">{q.packageName}</div>
@@ -503,6 +633,15 @@ DOC_TEMPLATES.flowbiz_quote = {
 
     // Page 2 — built dynamically from enabled sections
     const sections = [];
+
+    if (q.showBlocks && Array.isArray(q.blocks) && q.blocks.length > 0) {
+      sections.push(
+        <div key="blocks" className="qblk-wrap">
+          {q.blocksTitle && <h2 className="quote-h2" style={{ marginTop: 6 }}>{q.blocksTitle}</h2>}
+          {q.blocks.map((b) => renderQuoteBlock(b))}
+        </div>
+      );
+    }
 
     if (q.showAccounting) {
       sections.push(
@@ -561,7 +700,7 @@ DOC_TEMPLATES.flowbiz_quote = {
         <div className="quote-signoff-block">
           <div className="quote-signoff-label">חתימת הספק</div>
           <div className="quote-signoff-line" />
-          <div className="quote-signoff-cap">תאריך · A.O.T STARTAPPS LTD</div>
+          <div className="quote-signoff-cap">תאריך · {q.headerCo}</div>
         </div>
       </div>
     );

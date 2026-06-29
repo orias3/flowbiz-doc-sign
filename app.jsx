@@ -415,6 +415,47 @@ const QuoteFormModal = ({ open, onClose, onSubmit, initial }) => {
   const removeAt = (key, i) => setData((d) => ({ ...d, [key]: d[key].filter((_, idx) => idx !== i) }));
   const appendTo = (key, value) => setData((d) => ({ ...d, [key]: [...d[key], value] }));
 
+  // Block-specific helpers
+  const moveBlock = (i, dir) => setData((d) => {
+    const arr = [...(d.blocks || [])];
+    const j = i + dir;
+    if (j < 0 || j >= arr.length) return d;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+    return { ...d, blocks: arr };
+  });
+  const addBlock = (type) => setData((d) => {
+    const id = "blk-" + Math.random().toString(36).slice(2, 9);
+    let block = { id, type };
+    if (type === "heading") block.text = "";
+    else if (type === "subheading") block.text = "";
+    else if (type === "paragraph") block.text = "";
+    else if (type === "labeled") block = { id, type, label: "", text: "" };
+    else if (type === "callout") block = { id, type, title: "", text: "" };
+    else if (type === "milestone") block = { id, type, title: "", focusLabel: "המיקוד", focus: "", valueLabel: "הערך המרכזי", value: "", tasksLabel: "משימות", tasks: [""] };
+    return { ...d, blocks: [...(d.blocks || []), block] };
+  });
+  const updateMsTask = (bi, ti, value) => setData((d) => ({
+    ...d,
+    blocks: d.blocks.map((b, idx) => idx === bi ? { ...b, tasks: b.tasks.map((t, k) => k === ti ? value : t) } : b),
+  }));
+  const addMsTask = (bi) => setData((d) => ({
+    ...d,
+    blocks: d.blocks.map((b, idx) => idx === bi ? { ...b, tasks: [...(b.tasks || []), ""] } : b),
+  }));
+  const removeMsTask = (bi, ti) => setData((d) => ({
+    ...d,
+    blocks: d.blocks.map((b, idx) => idx === bi ? { ...b, tasks: b.tasks.filter((_, k) => k !== ti) } : b),
+  }));
+
+  const BLOCK_TYPE_LABELS = {
+    heading: "כותרת",
+    subheading: "כותרת משנה",
+    paragraph: "פסקה",
+    labeled: "שורה עם הדגשה",
+    milestone: "אבן דרך",
+    callout: "תיבה מודגשת",
+  };
+
   const canSave = data.clientName && data.clientName.trim().length > 0;
 
   // Helper to render a section without creating a new component type each render.
@@ -435,7 +476,7 @@ const QuoteFormModal = ({ open, onClose, onSubmit, initial }) => {
   );
 
   return (
-    <Modal open={open} onClose={onClose} wide
+    <Modal open={open} onClose={onClose} wide noScrimClose
       title={initial ? "עריכת הצעה" : "הצעת מחיר חדשה"}
       subtitle="כל שינוי ייקלט מיידית במסמך אחרי שמירה. אפשר להפעיל/לכבות סקשנים שלמים ולערוך כל פריט.">
       <div className="qform">
@@ -457,8 +498,49 @@ const QuoteFormModal = ({ open, onClose, onSubmit, initial }) => {
           </>
         ))}
 
+        {sec("hero", "כותרת ופתיח (טקסטים)", {}, (
+          <>
+            <div className="qgrid">
+              <label className="qfield">
+                <span>שם החברה (כותרת עליונה)</span>
+                <input value={data.headerCo} onChange={(e) => update({ headerCo: e.target.value })} />
+              </label>
+              <label className="qfield">
+                <span>שורת משנה בכותרת</span>
+                <input value={data.headerSub} onChange={(e) => update({ headerSub: e.target.value })} />
+              </label>
+            </div>
+            <label className="qfield">
+              <span>תווית קטנה (eyebrow)</span>
+              <input value={data.eyebrow} onChange={(e) => update({ eyebrow: e.target.value })} />
+            </label>
+            <label className="qfield">
+              <span>כותרת ראשית</span>
+              <textarea rows={2} value={data.heroTitle} onChange={(e) => update({ heroTitle: e.target.value })} />
+            </label>
+            <label className="qfield">
+              <span>פסקת פתיח</span>
+              <textarea rows={3} value={data.heroLead} onChange={(e) => update({ heroLead: e.target.value })} />
+            </label>
+            <div className="qgrid">
+              <label className="qfield">
+                <span>כותרת מקטע הכרטיסים</span>
+                <input value={data.cardsTitle} onChange={(e) => update({ cardsTitle: e.target.value })} />
+              </label>
+              <label className="qfield">
+                <span>כותרת מקטע הפיצ׳רים</span>
+                <input value={data.featuresTitle} onChange={(e) => update({ featuresTitle: e.target.value })} />
+              </label>
+            </div>
+          </>
+        ))}
+
         {sec("pricing", "מחיר וחבילה", {}, (
           <>
+            <label className="qfield">
+              <span>תווית מעל קופסת המחיר</span>
+              <input value={data.pricePill} onChange={(e) => update({ pricePill: e.target.value })} />
+            </label>
             <label className="qfield">
               <span>שם החבילה</span>
               <input value={data.packageName} onChange={(e) => update({ packageName: e.target.value })} />
@@ -522,6 +604,82 @@ const QuoteFormModal = ({ open, onClose, onSubmit, initial }) => {
             <button className="qadd-btn" onClick={() => appendTo("features", "")}>
               <Icon name="plus" size={13}/> הוסף פיצ׳ר
             </button>
+          </>
+        ))}
+
+        {sec("blocks", "בלוקים חופשיים (תוכן עשיר)", { toggleable: true, includedKey: "showBlocks", count: (data.blocks || []).length }, (
+          <>
+            <p className="qfield-hint">
+              <Icon name="info" size={12} /> כל בלוק וכל טקסט ניתנים לעריכה. השתמש/י בחיצים כדי לשנות סדר. ברירת המחדל מכילה את תוכנית ההאצה למייסדים — ערוך/מחק לפי הצורך.
+            </p>
+            <label className="qfield">
+              <span>כותרת המקטע (אופציונלי)</span>
+              <input value={data.blocksTitle} onChange={(e) => update({ blocksTitle: e.target.value })} placeholder="(ריק = ללא כותרת מקטע)" />
+            </label>
+
+            {(data.blocks || []).map((b, i) => (
+              <div key={b.id} className="qblk-edit">
+                <div className="qblk-edit-head">
+                  <span className="qblk-edit-type">{BLOCK_TYPE_LABELS[b.type] || b.type}</span>
+                  <span className="qblk-spacer" />
+                  <button className="qblk-move-btn" disabled={i === 0} onClick={() => moveBlock(i, -1)} title="הזז למעלה">↑</button>
+                  <button className="qblk-move-btn" disabled={i === (data.blocks.length - 1)} onClick={() => moveBlock(i, 1)} title="הזז למטה">↓</button>
+                  <button className="qicon-btn danger" onClick={() => removeAt("blocks", i)} title="מחיקה"><Icon name="trash" size={13}/></button>
+                </div>
+
+                {(b.type === "heading" || b.type === "subheading" || b.type === "paragraph") && (
+                  <textarea rows={b.type === "paragraph" ? 3 : 1} value={b.text || ""} onChange={(e) => updateRow("blocks", i, { text: e.target.value })} placeholder="טקסט" className="sc-textarea" />
+                )}
+
+                {b.type === "labeled" && (
+                  <>
+                    <input value={b.label || ""} onChange={(e) => updateRow("blocks", i, { label: e.target.value })} placeholder="הדגשה (לדוגמה: POC מיידי)" />
+                    <textarea rows={2} value={b.text || ""} onChange={(e) => updateRow("blocks", i, { text: e.target.value })} placeholder="טקסט" className="sc-textarea" />
+                  </>
+                )}
+
+                {b.type === "callout" && (
+                  <>
+                    <input value={b.title || ""} onChange={(e) => updateRow("blocks", i, { title: e.target.value })} placeholder="כותרת" />
+                    <textarea rows={2} value={b.text || ""} onChange={(e) => updateRow("blocks", i, { text: e.target.value })} placeholder="טקסט" className="sc-textarea" />
+                  </>
+                )}
+
+                {b.type === "milestone" && (
+                  <>
+                    <input value={b.title || ""} onChange={(e) => updateRow("blocks", i, { title: e.target.value })} placeholder="כותרת אבן הדרך" />
+                    <div className="qgrid">
+                      <input value={b.focusLabel || ""} onChange={(e) => updateRow("blocks", i, { focusLabel: e.target.value })} placeholder="תווית 1 (המיקוד)" />
+                      <input value={b.valueLabel || ""} onChange={(e) => updateRow("blocks", i, { valueLabel: e.target.value })} placeholder="תווית 2 (הערך המרכזי)" />
+                    </div>
+                    <textarea rows={3} value={b.focus || ""} onChange={(e) => updateRow("blocks", i, { focus: e.target.value })} placeholder="טקסט המיקוד" className="sc-textarea" />
+                    <textarea rows={2} value={b.value || ""} onChange={(e) => updateRow("blocks", i, { value: e.target.value })} placeholder="טקסט הערך המרכזי" className="sc-textarea" />
+                    <input value={b.tasksLabel || ""} onChange={(e) => updateRow("blocks", i, { tasksLabel: e.target.value })} placeholder="תווית המשימות" />
+                    {(b.tasks || []).map((t, ti) => (
+                      <div key={ti} className="qrow-edit">
+                        <input value={t} onChange={(e) => updateMsTask(i, ti, e.target.value)} placeholder="משימה" />
+                        <button className="qicon-btn danger" onClick={() => removeMsTask(i, ti)} title="מחיקה"><Icon name="trash" size={13}/></button>
+                      </div>
+                    ))}
+                    <button className="qadd-btn" onClick={() => addMsTask(i)}>
+                      <Icon name="plus" size={13}/> הוסף משימה
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+
+            <div className="qblk-add-row">
+              <select value="" onChange={(e) => { if (e.target.value) addBlock(e.target.value); }}>
+                <option value="">+ הוסף בלוק...</option>
+                <option value="heading">כותרת</option>
+                <option value="subheading">כותרת משנה</option>
+                <option value="paragraph">פסקה</option>
+                <option value="labeled">שורה עם הדגשה</option>
+                <option value="milestone">אבן דרך</option>
+                <option value="callout">תיבה מודגשת</option>
+              </select>
+            </div>
           </>
         ))}
 
@@ -990,7 +1148,7 @@ const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedReso
   const canSave = (data.beneficiaryName || "").trim().length > 0 && (data.amount || "").toString().trim().length > 0;
 
   return (
-    <Modal open={open} onClose={onClose} wide
+    <Modal open={open} onClose={onClose} wide noScrimClose
       title={initial ? "עריכת החלטת העברה" : "החלטת העברה בנקאית חדשה"}
       subtitle="מלא/י את פרטי ההעברה. אפשר לבחור ספק שמור כדי לטעון את פרטי החשבון בלחיצה אחת.">
       <div className="qform">
@@ -1216,7 +1374,7 @@ const SalesCallFormModal = ({ open, onClose, onSubmit, initial }) => {
   const txk = (k) => ({ value: data[k], onChange: (v) => update({ [k]: v }) });
 
   return (
-    <Modal open={open} onClose={onClose} wide
+    <Modal open={open} onClose={onClose} wide noScrimClose
       title={initial ? "עריכת סיכום שיחה" : "סיכום שיחת מכירה חדש"}
       subtitle="מלא/י את השדות הרלוונטיים — הכל בזרימה אחת. ניתן לחזור ולערוך מאוחר יותר.">
       <div className="qform sc-form-flow">

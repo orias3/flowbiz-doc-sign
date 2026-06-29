@@ -909,6 +909,60 @@ input, textarea { font-family: inherit; }
 
 .quote-terms { font-size: 10px; color: var(--gray-500); line-height: 1.55; margin-top: 10px; }
 
+/* Quote custom content blocks (rich editable body) */
+.qblk-wrap { text-align: right; }
+.qblk-heading { margin: 18px 0 6px; }
+.qblk-subheading { font-size: 13px; color: var(--gray-500); font-weight: 600; margin: -2px 0 10px; }
+.qblk-paragraph { font-size: 12.5px; color: var(--gray-700); line-height: 1.6; margin: 8px 0; }
+.qblk-labeled { font-size: 12.5px; color: var(--gray-700); line-height: 1.6; margin: 7px 0; }
+.qblk-label { color: var(--blue-900); }
+.qblk-callout {
+  background: var(--blue-50); border: 1px solid var(--blue-100);
+  border-radius: 12px; padding: 12px 16px; margin: 12px 0;
+}
+.qblk-callout-title { font-weight: 800; color: var(--blue-900); font-size: 14px; }
+.qblk-callout-text { font-size: 12px; color: var(--gray-700); line-height: 1.55; margin-top: 4px; }
+.qblk-milestone {
+  border: 1px solid var(--gray-200); border-radius: 12px;
+  padding: 12px 16px; margin: 10px 0;
+  background: var(--gray-25);
+  break-inside: avoid;
+}
+.qblk-ms-title { font-weight: 800; color: var(--blue-900); font-size: 13.5px; margin-bottom: 6px; }
+.qblk-ms-row { font-size: 12px; color: var(--gray-700); line-height: 1.55; margin: 5px 0; }
+.qblk-ms-row strong { color: var(--blue-800); }
+.qblk-ms-tasks { margin-top: 8px; background: #fff; border-radius: 8px; padding: 8px 12px; }
+.qblk-ms-tasks-label { font-size: 11.5px; font-weight: 700; color: var(--gray-600); margin-bottom: 3px; }
+.qblk-ms-tasks ul { margin: 0; padding-inline-start: 18px; }
+.qblk-ms-tasks li { font-size: 12px; color: var(--gray-700); line-height: 1.5; margin: 2px 0; }
+
+/* Quote form — block editor */
+.qblk-edit {
+  background: var(--gray-50); border: 1px solid var(--gray-100);
+  border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+}
+.qblk-edit-head { display: flex; align-items: center; gap: 6px; }
+.qblk-edit-type {
+  font-size: 11px; font-weight: 700; color: var(--blue-700);
+  background: var(--blue-50); padding: 3px 10px; border-radius: 999px;
+  white-space: nowrap;
+}
+.qblk-edit-head .qblk-spacer { flex: 1; }
+.qblk-move-btn {
+  width: 28px; height: 28px; border-radius: 8px;
+  background: #fff; border: 1px solid var(--gray-200);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--gray-500); cursor: pointer; flex-shrink: 0; font-size: 13px; font-weight: 700;
+}
+.qblk-move-btn:hover { color: var(--blue-600); border-color: var(--blue-300); }
+.qblk-move-btn:disabled { opacity: .35; cursor: default; }
+.qblk-add-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.qblk-add-row select {
+  flex: 1; min-width: 140px;
+  border: 1.5px solid var(--gray-200); border-radius: 10px;
+  padding: 9px 12px; font-size: 13px; font-family: inherit; background: #fff; outline: none;
+}
+
 /* Bank transfer resolution — page rendering */
 .bt-page { padding: 44px 52px !important; font-size: 13px !important; color: var(--gray-800); }
 .bt-subhead { font-size: 13.5px; color: var(--gray-600); text-align: right; margin: 4px 0 14px; }

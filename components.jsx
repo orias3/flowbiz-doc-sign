@@ -43,10 +43,16 @@ const Icon = ({ name, size = 18, color = "currentColor", strokeWidth = 2 }) => {
 };
 
 // Reusable Modal
-const Modal = ({ open, onClose, title, subtitle, children, wide, footer }) => {
+// noScrimClose: when true, clicking the backdrop does NOT close the modal —
+// the user must use the X button (or an explicit action). Used for edit forms
+// so a stray click on the side doesn't discard unsaved input.
+const Modal = ({ open, onClose, title, subtitle, children, wide, footer, noScrimClose }) => {
   if (!open) return null;
   return (
-    <div className="modal-scrim" onClick={(e) => e.target === e.currentTarget && onClose && onClose()}>
+    <div className="modal-scrim" onClick={(e) => {
+      if (noScrimClose) return;
+      if (e.target === e.currentTarget && onClose) onClose();
+    }}>
       <div className={"modal" + (wide ? " wide" : "")} style={{ position: "relative" }}>
         {onClose && <button className="modal-close" onClick={onClose} aria-label="סגירה"><Icon name="x" size={18}/></button>}
         {title && <h2>{title}</h2>}
