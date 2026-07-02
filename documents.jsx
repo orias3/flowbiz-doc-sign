@@ -184,7 +184,9 @@ const QUOTE_DEFAULTS = {
   packageSub: "שלושה חודשים ראשונים · התחייבות מינימלית · ביטול בכל עת",
   monthlyPrice: "147",
   fullPrice: "297",
+  fullPriceSuffix: "₪ / חודש",      // shown after the crossed-out price
   savingsText: "חיסכון של 150₪ לחודש",
+  savingsSuffix: "לחודש",           // period word appended to the auto-computed savings
   monthsLabel: "לחודש · 3 חודשים ראשונים",
   pricingFootnote: "לאחר 3 חודשים, המחיר הרגיל הוא {fullPrice} ₪ לחודש. ניתן לבטל בכל שלב ללא קנסות. כל המחירים אינם כוללים מע״מ.",
 
@@ -553,7 +555,7 @@ DOC_TEMPLATES.flowbiz_quote = {
     const _monthlyNum = parseFloat(String(q.monthlyPrice).replace(/[^\d.]/g, ""));
     const _fullNum = parseFloat(String(q.fullPrice).replace(/[^\d.]/g, ""));
     const savingsAmount = (Number.isFinite(_fullNum) && Number.isFinite(_monthlyNum)) ? (_fullNum - _monthlyNum) : 0;
-    const computedSavings = savingsAmount > 0 ? `חיסכון של ₪${savingsAmount} לחודש` : "";
+    const computedSavings = savingsAmount > 0 ? `חיסכון של ₪${savingsAmount}${q.savingsSuffix ? " " + q.savingsSuffix : ""}` : "";
 
     if (page === 0) {
       return (
@@ -620,7 +622,7 @@ DOC_TEMPLATES.flowbiz_quote = {
                 {computedSavings && <div className="quote-savings">{computedSavings}</div>}
               </div>
               <div className="quote-price-right">
-                <div className="quote-price-old">{q.fullPrice} ₪ / חודש</div>
+                <div className="quote-price-old">{q.fullPrice} {q.fullPriceSuffix}</div>
                 <div className="quote-price-new">₪{q.monthlyPrice}</div>
                 <div className="quote-price-cap">{q.monthsLabel}</div>
               </div>

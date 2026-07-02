@@ -551,21 +551,29 @@ const QuoteFormModal = ({ open, onClose, onSubmit, initial }) => {
             </label>
             <div className="qgrid">
               <label className="qfield">
-                <span>מחיר מבצע (₪/חודש)</span>
+                <span>מחיר מבצע</span>
                 <input value={data.monthlyPrice} onChange={(e) => update({ monthlyPrice: e.target.value })} dir="ltr" />
               </label>
               <label className="qfield">
-                <span>מחיר מחירון (₪/חודש)</span>
+                <span>מחיר מחירון</span>
                 <input value={data.fullPrice} onChange={(e) => update({ fullPrice: e.target.value })} dir="ltr" />
               </label>
             </div>
+            <div className="qgrid">
+              <label className="qfield">
+                <span>תווית מחיר (תחת המספר)</span>
+                <input value={data.monthsLabel} onChange={(e) => update({ monthsLabel: e.target.value })} placeholder="לדוגמה: לחודש / חד פעמי" />
+              </label>
+              <label className="qfield">
+                <span>סיומת מחיר מחירון</span>
+                <input value={data.fullPriceSuffix} onChange={(e) => update({ fullPriceSuffix: e.target.value })} placeholder="₪ / חודש" />
+              </label>
+            </div>
             <label className="qfield">
-              <span>תווית מחיר (תחת המספר)</span>
-              <input value={data.monthsLabel} onChange={(e) => update({ monthsLabel: e.target.value })} />
+              <span>סיומת שורת החיסכון</span>
+              <input value={data.savingsSuffix} onChange={(e) => update({ savingsSuffix: e.target.value })} placeholder="לחודש (השאר ריק ללא סיומת)" />
+              <small>שורת ה"חיסכון" מחושבת אוטומטית מהפרש המחירים; כאן קובעים את מילת הזמן בסוף.</small>
             </label>
-            <p className="qfield-hint">
-              <Icon name="info" size={12} /> שורת ה"חיסכון" במסמך מחושבת אוטומטית מהפרש המחירים (מחירון פחות מבצע).
-            </p>
             <label className="qfield">
               <span>הערת תחתית בקופסת המחיר</span>
               <textarea rows={2} value={data.pricingFootnote} onChange={(e) => update({ pricingFootnote: e.target.value })} />
