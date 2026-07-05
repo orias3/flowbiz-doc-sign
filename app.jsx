@@ -193,7 +193,7 @@ function sanitizeForCounterparty(doc) {
   };
 }
 
-const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer, onNewSalesCall, onOpenSavedSigs, onDelete, adminEmail, onLogout }) => {
+const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer, onNewSalesCall, onOpenSavedSigs, onDelete, onDuplicate, adminEmail, onLogout }) => {
   const [drag, setDrag] = useStateA(false);
   const fileRef = React.useRef(null);
   const counts = useMemoA(() => {
@@ -311,9 +311,14 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
             const template = DOC_TEMPLATES[doc.template];
             return (
               <div key={doc.id} className="doc-card" onClick={() => onOpen(doc.id)}>
-                <button className="doc-card-del" title="מחיקה" onClick={(e) => { e.stopPropagation(); onDelete(doc.id); }}>
-                  <Icon name="trash" size={14} />
-                </button>
+                <div className="doc-card-actions">
+                  <button className="doc-card-act" title="שכפול" onClick={(e) => { e.stopPropagation(); onDuplicate(doc.id); }}>
+                    <Icon name="copy" size={14} />
+                  </button>
+                  <button className="doc-card-act doc-card-del" title="מחיקה" onClick={(e) => { e.stopPropagation(); onDelete(doc.id); }}>
+                    <Icon name="trash" size={14} />
+                  </button>
+                </div>
                 <div className="doc-thumb">
                   {doc.uploadedPages && doc.uploadedPages[0]
                     ? <img src={doc.uploadedPages[0]} className="doc-thumb-bg" alt="" />
@@ -1896,6 +1901,35 @@ const App = () => {
     showToast("המסמך נמחק");
   };
 
+  // Create an independent copy of a document. Deep-clones all nested data
+  // (fields, uploadedPages, quoteData/bankTransferData/salesCallData incl. their
+  // nested arrays/blocks) so edits to the copy never touch the original. The
+  // copy starts as a fresh unshared/unsigned draft.
+  const duplicateDoc = (id) => {
+    const src = docs.find((d) => d.id === id);
+    if (!src) return;
+    let clone;
+    try {
+      clone = JSON.parse(JSON.stringify(src));
+    } catch (e) {
+      console.error("duplicate clone failed", e);
+      showToast("שגיאה בשכפול המסמך");
+      return;
+    }
+    clone.id = "doc-" + genId();
+    clone.name = "עותק · " + (src.name || "מסמך");
+    clone.status = "draft";
+    clone.createdAt = Date.now();
+    // Strip anything tying it to the original's share/sign lifecycle.
+    delete clone.shareId;
+    delete clone.shareToken;
+    delete clone.completedAt;
+    delete clone.signedBy;
+    delete clone.clientEmail;
+    setDocs((prev) => [clone, ...prev]);
+    showToast("נוצר עותק חדש — שינויים בו לא ישפיעו על המקור");
+  };
+
   const newBlankDoc = () => {
     const id = "doc-" + genId();
     const newDoc = {
@@ -2260,6 +2294,7 @@ const App = () => {
       <Library
         docs={docs}
         onOpen={openDoc}
+        onDuplicate={duplicateDoc}
         onUpload={newDocFromUpload}
         onNew={newBlankDoc}
         onNewQuote={openNewQuote}

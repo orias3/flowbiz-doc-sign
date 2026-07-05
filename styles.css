@@ -586,17 +586,26 @@ input, textarea { font-family: inherit; }
   object-fit: cover; background: #fff; border-radius: 10px;
 }
 .doc-card { position: relative; }
-.doc-card-del {
+.doc-card-actions {
   position: absolute; top: 12px; left: 12px; z-index: 3;
+  display: flex; gap: 6px; opacity: 0;
+  transition: opacity .15s;
+}
+.doc-card:hover .doc-card-actions { opacity: 1; }
+.doc-card-act {
   width: 30px; height: 30px; border-radius: 999px;
   background: #fff; border: 1px solid var(--gray-200);
   display: inline-flex; align-items: center; justify-content: center;
-  color: var(--gray-500); cursor: pointer; opacity: 0;
-  transition: opacity .15s, color .15s, border-color .15s;
+  color: var(--gray-500); cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
   box-shadow: var(--shadow-xs);
 }
-.doc-card:hover .doc-card-del { opacity: 1; }
-.doc-card-del:hover { color: #DC2626; border-color: #FCA5A5; }
+.doc-card-act:hover { color: var(--blue-600); border-color: var(--blue-300); background: var(--blue-50); }
+.doc-card-del:hover { color: #DC2626 !important; border-color: #FCA5A5 !important; background: var(--red-50) !important; }
+/* Touch devices have no hover — keep the actions visible */
+@media (pointer: coarse) {
+  .doc-card-actions { opacity: 1; }
+}
 
 .zoom-bar {
   position: sticky; top: 0; z-index: 5;
