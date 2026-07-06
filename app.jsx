@@ -1439,6 +1439,12 @@ const SalesCallFormModal = ({ open, onClose, onSubmit, initial }) => {
         <ScSection title="הצגת פתרון ומחיר (סימוני ✓)">
           <ScCheckRow {...cbk("solutionPresented")} label="הצגת פתרון ופיצ׳רים לפי בעיות שהעלה הלקוח" />
           <ScCheckRow {...cbk("pricingPresented")} label="הצגת מחיר" />
+          <div className="sc-offers-edit">
+            <div className="sc-offers-edit-label">אילו הצעות הוצגו?</div>
+            {(window.SALES_CALL_OFFERS || []).map((o) => (
+              <ScCheckRow key={o.key} {...cbk(o.key)} label={o.label} />
+            ))}
+          </div>
           <ScCheckRow {...cbk("letClientReact")} label='לאחר ההצגה — לתת ללקוח להגיב ראשון' />
         </ScSection>
 

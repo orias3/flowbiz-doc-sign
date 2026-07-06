@@ -496,6 +496,11 @@ const SALES_CALL_DEFAULTS = {
   // Solution presentation
   solutionPresented: false,
   pricingPresented: false,
+  // Which of the 4 offers were presented (checkboxes under 'הצגת מחיר')
+  offer1: false,
+  offer2: false,
+  offer3: false,
+  offer4: false,
   letClientReact: false,
 
   // Outcome
@@ -515,7 +520,16 @@ function normalizeSalesCallData(s) {
   return { ...SALES_CALL_DEFAULTS, ...(s || {}) };
 }
 
+// The 4 standard pricing offers, shared between the form and the rendered doc.
+const SALES_CALL_OFFERS = [
+  { key: "offer1", label: "הצעה #1 — 1,970₪ שנתי, עם הבטחת החזר תוך 3 חודשים אם מגשימים יעד של 3,000₪ בחודש (או פי 2 מהרווח הנוכחי)" },
+  { key: "offer2", label: "הצעה #2 — מערכת לשנה עם ליווי אנושי + 4 מפגשי ליווי — 4,950₪ במקום 7,000₪" },
+  { key: "offer3", label: "הצעה #3 — ראיית חשבון 179₪ לחודש + 250₪ פתיחת תיק" },
+  { key: "offer4", label: "הצעה #4 — מערכת בלבד, 197₪ לחודש, שבוע ניסיון, ללא התחייבות" },
+];
+
 window.SALES_CALL_DEFAULTS = SALES_CALL_DEFAULTS;
+window.SALES_CALL_OFFERS = SALES_CALL_OFFERS;
 window.normalizeSalesCallData = normalizeSalesCallData;
 
 function Check({ on, label }) {
@@ -939,6 +953,11 @@ DOC_TEMPLATES.sales_call = {
           <div className="sc-section-title">הצגת פתרון ומחיר</div>
           <Check on={s.solutionPresented} label="הצגת פתרון ופיצ׳רים לפי בעיות שהעלה הלקוח" />
           <Check on={s.pricingPresented} label="הצגת מחיר" />
+          <div className="sc-offers">
+            {SALES_CALL_OFFERS.map((o) => (
+              <Check key={o.key} on={s[o.key]} label={o.label} />
+            ))}
+          </div>
           <Check on={s.letClientReact} label="ניתן ללקוח להגיב ראשון אחרי הצגת המחיר" />
         </div>
 

@@ -1244,6 +1244,26 @@ input, textarea { font-family: inherit; }
 .sc-check.on .sc-check-box { background: var(--green-500); border-color: var(--green-500); color: #fff; }
 .sc-check-label { line-height: 1.4; }
 
+/* Rendered doc — the 4 pricing offers, indented under 'הצגת מחיר' */
+.sc-offers {
+  margin: 2px 0 4px;
+  padding-inline-start: 28px;
+  border-inline-start: 2px solid var(--gray-200);
+}
+.sc-offers .sc-check { padding: 3px 0; font-size: 12px; }
+
+/* Form — the pricing offers group */
+.sc-offers-edit {
+  background: var(--blue-50); border: 1px solid var(--blue-100);
+  border-radius: 12px; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.sc-offers-edit-label {
+  font-size: 11.5px; font-weight: 700; color: var(--blue-800);
+  margin-bottom: 2px;
+}
+.sc-offers-edit .sc-check-row { background: #fff; }
+
 .sc-qa { margin: 8px 0; }
 .sc-qa-q { font-size: 12.5px; font-weight: 700; color: var(--gray-700); margin-bottom: 4px; }
 .sc-qa-a {
