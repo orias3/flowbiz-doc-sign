@@ -13,6 +13,28 @@ const BACKUP_PREFIX = 'admin/backups/';
 const KEEP_BACKUPS = 40;
 const BLOB_BASE = 'https://bjitaw3flhgszddh.public.blob.vercel-storage.com';
 
+// Read the live state blob bypassing the CDN edge cache. Vercel Blob's public
+// URL is edge-cached, which otherwise gives a ~5-8s read-after-write window
+// where a just-written version isn't visible — bad for the merge, which relies
+// on reading the freshest `prev`. A unique query param forces an origin fetch,
+// and writing the blob with cacheControlMaxAge:0 keeps the edge from caching it.
+async function readState() {
+  try {
+    const r = await fetch(`${BLOB_BASE}/${STATE_PATH}?_cb=${Date.now()}_${Math.random().toString(36).slice(2)}`, { cache: 'no-store' });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch { return null; }
+}
+async function writeState(payload) {
+  return put(STATE_PATH, JSON.stringify(payload), {
+    access: 'public',
+    contentType: 'application/json',
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    cacheControlMaxAge: 0,
+  });
+}
+
 // Save a snapshot of the previous state before it gets overwritten, and prune
 // old snapshots. Fully best-effort — any failure here must never break the
 // main write, so every caller wraps this in try/catch and ignores errors.
@@ -103,11 +125,7 @@ export default async function handler(req, res) {
       if (!r.ok) return res.status(404).json({ error: 'backup_not_found' });
       const snap = await r.json();
       // Back up the current state first, then write the restored snapshot as a new version.
-      let prev = null;
-      try {
-        const cur = await fetch(`${BLOB_BASE}/${STATE_PATH}`, { cache: 'no-store' });
-        if (cur.ok) prev = await cur.json();
-      } catch {}
+      const prev = await readState();
       try { await backupPrevState(prev); } catch {}
       const nextVersion = ((prev && prev._meta && prev._meta.version) || 0) + 1;
       const payload = {
@@ -116,9 +134,7 @@ export default async function handler(req, res) {
         savedSignatures: Array.isArray(snap.savedSignatures) ? snap.savedSignatures : [],
         _meta: { version: nextVersion, lastUpdated: Date.now(), by: user, exists: true, restoredFrom: which },
       };
-      await put(STATE_PATH, JSON.stringify(payload), {
-        access: 'public', contentType: 'application/json', addRandomSuffix: false, allowOverwrite: true,
-      });
+      await writeState(payload);
       return res.status(200).json({ ok: true, _meta: payload._meta, docCount: payload.docs.length });
     } catch (e) {
       console.error('restore failed', e);
@@ -127,28 +143,19 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'GET') {
-    try {
-      const r = await fetch(`${BLOB_BASE}/${STATE_PATH}`, { cache: 'no-store' });
-      if (!r.ok) {
-        return res.status(200).json({ docs: [], vendors: [], savedSignatures: [], _meta: { exists: false } });
-      }
-      const data = await r.json();
-      return res.status(200).json(data);
-    } catch (e) {
+    const data = await readState();
+    if (!data) {
       return res.status(200).json({ docs: [], vendors: [], savedSignatures: [], _meta: { exists: false } });
     }
+    return res.status(200).json(data);
   }
 
   if (req.method === 'PUT') {
     const body = await readJson(req);
     if (!body) return res.status(400).json({ error: 'invalid_json' });
 
-    // Read current server state.
-    let prev = null;
-    try {
-      const r = await fetch(`${BLOB_BASE}/${STATE_PATH}`, { cache: 'no-store' });
-      if (r.ok) prev = await r.json();
-    } catch {}
+    // Read current server state (fresh — bypasses the CDN edge cache).
+    const prev = await readState();
     const prevVersion = (prev && prev._meta && prev._meta.version) || 0;
 
     // Safety net: snapshot the previous state before we overwrite it.
@@ -193,12 +200,7 @@ export default async function handler(req, res) {
       },
     };
     try {
-      await put(STATE_PATH, JSON.stringify(payload), {
-        access: 'public',
-        contentType: 'application/json',
-        addRandomSuffix: false,
-        allowOverwrite: true,
-      });
+      await writeState(payload);
       // Return the merged state so the pushing client immediately adopts any
       // docs the other admin created/edited concurrently.
       return res.status(200).json({
