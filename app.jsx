@@ -2206,6 +2206,58 @@ const App = () => {
 
         try {
           const totalH = Math.max(PH, clone.scrollHeight);
+
+          // ── Content-aware pagination ──
+          // Collect "atomic" blocks that must not be split across a page break,
+          // measured in DOM px relative to the clone's top. We then pick page
+          // cut points that fall in the gaps between these blocks, so a page
+          // break never slices through the middle of a milestone/card/row.
+          const cloneTop = clone.getBoundingClientRect().top;
+          const AVOID_SEL = [
+            ".qblk-milestone", ".qblk-callout", ".qblk-labeled", ".qblk-heading",
+            ".quote-info-box", ".quote-price-box", ".quote-refund", ".quote-signoff",
+            ".quote-acct-row", ".quote-card", ".quote-checkmarks",
+            ".sc-section", ".sc-qa", ".sc-rating-row", ".sc-offers", ".sc-check",
+            ".bt-summary-row", ".bt-signatory", ".bt-decision",
+            "tr", "h1", "h2", "li",
+          ].join(",");
+          const avoid = [];
+          clone.querySelectorAll(AVOID_SEL).forEach((el) => {
+            const r = el.getBoundingClientRect();
+            const top = r.top - cloneTop;
+            const bottom = r.bottom - cloneTop;
+            const h = bottom - top;
+            // Only keep blocks that could fit within a single page; a block
+            // taller than a page must be split (nothing we can do), and its
+            // smaller children (li / rows) still guide the break.
+            if (h > 0 && h <= PH - 24) avoid.push({ top, bottom });
+          });
+
+          // Build page ranges [startPx, endPx) that respect the atomic blocks.
+          const ranges = [];
+          const MIN_ADVANCE = 60; // never emit a page shorter than this
+          let y = 0;
+          let guard = 0;
+          while (y < totalH - 1 && guard++ < 100) {
+            let cut = y + PH;
+            if (cut >= totalH) {
+              cut = totalH;
+            } else {
+              // Pull the cut up above any block that straddles the ideal break.
+              let best = cut;
+              for (const b of avoid) {
+                if (b.top < cut - 0.5 && b.bottom > cut + 0.5 && b.top < best) {
+                  best = b.top;
+                }
+              }
+              if (best > y + MIN_ADVANCE) cut = best; // else hard split (unavoidable)
+            }
+            if (cut <= y + MIN_ADVANCE) cut = Math.min(y + PH, totalH); // guarantee progress
+            ranges.push([y, cut]);
+            y = cut;
+          }
+          if (ranges.length === 0) ranges.push([0, totalH]);
+
           const canvas = await window.html2canvas(clone, {
             scale: SCALE,
             backgroundColor: "#fff",
@@ -2217,24 +2269,22 @@ const App = () => {
             windowWidth: PW,
             windowHeight: totalH,
           });
-          // Slice the captured canvas into A4-tall pages. The previous version
-          // forced the whole tall capture into one PDF page, which squished
-          // content vertically when the content was longer than one A4.
-          const sliceCount = Math.max(1, Math.ceil(canvas.height / CANVAS_PAGE_HEIGHT));
-          for (let s = 0; s < sliceCount; s++) {
+
+          // Each range becomes one A4 page: draw its slice at the top of a
+          // full-height A4 canvas (1:1), leaving white space below if the
+          // page ended early to keep a block whole.
+          for (const [startPx, endPx] of ranges) {
+            const srcY = Math.round(startPx * SCALE);
+            const srcH = Math.min(Math.round((endPx - startPx) * SCALE), canvas.height - srcY);
             const sliceCanvas = document.createElement("canvas");
             sliceCanvas.width = canvas.width;
             sliceCanvas.height = CANVAS_PAGE_HEIGHT;
             const sctx = sliceCanvas.getContext("2d");
             sctx.fillStyle = "#fff";
             sctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
-            const srcY = s * CANVAS_PAGE_HEIGHT;
-            const sliceSrcH = Math.min(CANVAS_PAGE_HEIGHT, canvas.height - srcY);
-            sctx.drawImage(
-              canvas,
-              0, srcY, canvas.width, sliceSrcH,
-              0, 0, canvas.width, sliceSrcH
-            );
+            if (srcH > 0) {
+              sctx.drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
+            }
             const dataUrl = sliceCanvas.toDataURL("image/jpeg", 0.92);
             if (firstPageAdded) pdf.addPage([PW, PH]);
             pdf.addImage(dataUrl, "JPEG", 0, 0, PW, PH);
