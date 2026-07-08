@@ -64,7 +64,17 @@ const Modal = ({ open, onClose, title, subtitle, children, wide, footer, noScrim
   );
 };
 
-const Toast = ({ message }) => message ? <div className="toast">{message}</div> : null;
+const Toast = ({ message, action, onAction }) => {
+  if (!message) return null;
+  return (
+    <div className="toast">
+      <span>{message}</span>
+      {action && (
+        <button className="toast-action" onClick={onAction}>{action.label}</button>
+      )}
+    </div>
+  );
+};
 
 // Heebo-friendly Hebrew date
 function formatDate(d = new Date()) {

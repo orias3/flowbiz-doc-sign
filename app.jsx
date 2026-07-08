@@ -193,17 +193,84 @@ function sanitizeForCounterparty(doc) {
   };
 }
 
+// Per-template display metadata (label + icon + colors), shared by the card
+// badge and the type filter chips.
+const DOC_TYPE_META = {
+  flowbiz_quote: { label: "הצעת מחיר", icon: "file-text", color: "var(--blue-700)", bg: "var(--blue-50)" },
+  bank_transfer: { label: "העברה לבנק", icon: "shield-check", color: "var(--green-700)", bg: "var(--green-50)" },
+  sales_call: { label: "סיכום שיחה", icon: "users", color: "#5D3FDB", bg: "var(--purple-100)" },
+};
+function docTypeKey(doc) {
+  if (DOC_TYPE_META[doc.template]) return doc.template;
+  return "other";
+}
+function docTypeMeta(doc) {
+  return DOC_TYPE_META[doc.template] || { label: "מסמך", icon: "file-text", color: "var(--gray-600)", bg: "var(--gray-100)" };
+}
+function timeAgo(ts) {
+  if (!ts) return "";
+  const diff = Date.now() - ts;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "עכשיו";
+  if (m < 60) return `לפני ${m} ד׳`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `לפני ${h} ש׳`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `לפני ${d} ימים`;
+  return new Date(ts).toLocaleDateString("he-IL");
+}
+
 const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer, onNewSalesCall, onOpenSavedSigs, onDelete, onDuplicate, adminEmail, onLogout }) => {
   const [drag, setDrag] = useStateA(false);
+  const [query, setQuery] = useStateA("");
+  const [typeFilter, setTypeFilter] = useStateA("all");
+  const [statusFilter, setStatusFilter] = useStateA("all");
+  const [sortBy, setSortBy] = useStateA("updated");
   const fileRef = React.useRef(null);
-  const counts = useMemoA(() => {
-    return {
-      total: docs.length,
-      draft: docs.filter((d) => statusOf(d) === "draft").length,
-      sent: docs.filter((d) => statusOf(d) === "sent").length,
-      done: docs.filter((d) => statusOf(d) === "completed").length
-    };
-  }, [docs]);
+
+  // Live docs = everything that isn't a deletion tombstone.
+  const liveDocs = useMemoA(() => docs.filter((d) => d && !d._deleted), [docs]);
+
+  const counts = useMemoA(() => ({
+    total: liveDocs.length,
+    draft: liveDocs.filter((d) => statusOf(d) === "draft").length,
+    sent: liveDocs.filter((d) => statusOf(d) === "sent").length,
+    done: liveDocs.filter((d) => statusOf(d) === "completed").length,
+  }), [liveDocs]);
+
+  const filtered = useMemoA(() => {
+    const q = query.trim().toLowerCase();
+    let list = liveDocs.filter((d) => {
+      if (typeFilter !== "all" && docTypeKey(d) !== typeFilter) return false;
+      if (statusFilter !== "all" && statusOf(d) !== statusFilter) return false;
+      if (q) {
+        const hay = ((d.name || "") + " " + (d.counterparty || "") + " " + (DOC_TEMPLATES[d.template]?.counterparty || "")).toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    const upd = (d) => d.updatedAt || d.createdAt || 0;
+    list = list.slice().sort((a, b) => {
+      if (sortBy === "name") return (a.name || "").localeCompare(b.name || "", "he");
+      if (sortBy === "created") return (b.createdAt || 0) - (a.createdAt || 0);
+      return upd(b) - upd(a); // 'updated' default
+    });
+    return list;
+  }, [liveDocs, query, typeFilter, statusFilter, sortBy]);
+
+  const typeChips = [
+    { key: "all", label: "הכל" },
+    { key: "flowbiz_quote", label: "הצעות מחיר" },
+    { key: "bank_transfer", label: "העברות" },
+    { key: "sales_call", label: "סיכומי שיחה" },
+    { key: "other", label: "אחר" },
+  ];
+  const statusChips = [
+    { key: "all", label: "כל הסטטוסים" },
+    { key: "draft", label: "טיוטה" },
+    { key: "sent", label: "ממתין" },
+    { key: "completed", label: "הושלם" },
+  ];
 
   const handleFiles = (files) => {
     if (!files || !files.length) return;
@@ -291,6 +358,31 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
           </div>
         </div>
 
+        <div className="lib-toolbar">
+          <div className="lib-search">
+            <Icon name="search" size={15} color="var(--gray-400)" />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="חיפוש לפי שם לקוח או מסמך…" />
+            {query && <button className="lib-search-clear" onClick={() => setQuery("")}><Icon name="x" size={13} /></button>}
+          </div>
+          <div className="lib-chips">
+            {typeChips.map((c) => (
+              <button key={c.key} className={"lib-chip " + (typeFilter === c.key ? "active" : "")} onClick={() => setTypeFilter(c.key)}>{c.label}</button>
+            ))}
+          </div>
+          <div className="lib-toolbar-right">
+            <div className="lib-chips">
+              {statusChips.map((c) => (
+                <button key={c.key} className={"lib-chip " + (statusFilter === c.key ? "active" : "")} onClick={() => setStatusFilter(c.key)}>{c.label}</button>
+              ))}
+            </div>
+            <select className="lib-sort" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+              <option value="updated">עודכן לאחרונה</option>
+              <option value="created">נוצר לאחרונה</option>
+              <option value="name">לפי שם</option>
+            </select>
+          </div>
+        </div>
+
         <div className="doc-grid">
           <div
             className={"upload-tile " + (drag ? "dragging" : "")}
@@ -298,7 +390,7 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
             onDragLeave={() => setDrag(false)}
             onDrop={(e) => {e.preventDefault();setDrag(false);handleFiles(e.dataTransfer.files);}}
             onClick={() => fileRef.current && fileRef.current.click()}>
-            
+
             <div className="upload-tile-circle"><Icon name="upload-cloud" size={26} /></div>
             <div className="upload-tile-title">גרור/י קובץ או לחץ/י להעלאה</div>
             <div className="upload-tile-sub">PDF, PNG, JPG · עד 20MB</div>
@@ -306,9 +398,17 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
               <Icon name="file-plus" size={14} /> בחירת קובץ
             </button>
           </div>
-          {docs.map((doc) => {
+          {filtered.length === 0 && (query || typeFilter !== "all" || statusFilter !== "all") && (
+            <div className="lib-empty">
+              <Icon name="search" size={28} color="var(--gray-300)" />
+              <div>לא נמצאו מסמכים תואמים</div>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setQuery(""); setTypeFilter("all"); setStatusFilter("all"); }}>נקה סינון</button>
+            </div>
+          )}
+          {filtered.map((doc) => {
             const s = statusOf(doc);
             const template = DOC_TEMPLATES[doc.template];
+            const tm = docTypeMeta(doc);
             return (
               <div key={doc.id} className="doc-card" onClick={() => onOpen(doc.id)}>
                 <div className="doc-card-actions">
@@ -322,26 +422,25 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
                 <div className="doc-thumb">
                   {doc.uploadedPages && doc.uploadedPages[0]
                     ? <img src={doc.uploadedPages[0]} className="doc-thumb-bg" alt="" />
-                    : <div className="doc-thumb-page" />}
-                  {(s === "completed" || s === "sent") &&
-                  <>
-                      <img src="assets/stamp.png" className="doc-thumb-stamp" alt="" />
-                      <div className="doc-thumb-sig">דני</div>
-                    </>
-                  }
+                    : <div className="doc-thumb-typed" style={{ background: tm.bg, color: tm.color }}>
+                        <Icon name={tm.icon} size={38} />
+                      </div>}
+                  <span className="doc-type-badge" style={{ background: tm.bg, color: tm.color }}>
+                    <Icon name={tm.icon} size={11} /> {tm.label}
+                  </span>
                 </div>
                 <div className="doc-meta">
                   <p className="doc-title">{doc.name}</p>
                   <p className="doc-sub">
-                    <Icon name="users" size={12} /> {template?.counterparty || doc.counterparty}
+                    <Icon name="users" size={12} /> {doc.counterparty || template?.counterparty || "—"}
                   </p>
                 </div>
                 <div className="doc-foot">
                   {s === "draft" && <span className="pill pill-neutral">טיוטה</span>}
                   {s === "sent" && <span className="pill pill-warn"><Icon name="clock" size={11} /> ממתין</span>}
                   {s === "completed" && <span className="pill pill-ok"><Icon name="check" size={11} /> הושלם</span>}
-                  <span style={{ fontSize: 11.5, color: "var(--gray-500)" }}>
-                    {new Date(doc.createdAt).toLocaleDateString("he-IL")}
+                  <span style={{ fontSize: 11.5, color: "var(--gray-500)" }} title={new Date(doc.updatedAt || doc.createdAt).toLocaleString("he-IL")}>
+                    {timeAgo(doc.updatedAt || doc.createdAt)}
                   </span>
                 </div>
               </div>);
@@ -1563,6 +1662,8 @@ const App = () => {
   const [sigAfter, setSigAfter] = useStateA(null);
   const [shareOpen, setShareOpen] = useStateA(false);
   const [toast, setToast] = useStateA("");
+  const [toastAction, setToastAction] = useStateA(null); // { label, fn }
+  const pendingDeleteRef = React.useRef({}); // id -> full doc, for undo
   const [quoteFormOpen, setQuoteFormOpen] = useStateA(false);
   const [quoteFormEditingId, setQuoteFormEditingId] = useStateA(null);
   const [btFormOpen, setBtFormOpen] = useStateA(false);
@@ -1582,6 +1683,8 @@ const App = () => {
   const [adminAuth, setAdminAuth] = useStateA(() => loadAdminAuth());
   const [bootingAdmin, setBootingAdmin] = useStateA(false);
   const [vendorBump, setVendorBump] = useStateA(0);
+  const [syncState, setSyncState] = useStateA("idle"); // idle | saving | saved | error
+  const syncFadeRef = React.useRef(null);
   const isClientRoute = (typeof window !== "undefined") && /^\/s\//i.test(window.location.pathname);
   const requiresAuth = !isClientRoute;
 
@@ -1619,6 +1722,8 @@ const App = () => {
     if (isPushingRef.current) { morePendingRef.current = true; return; }
     isPushingRef.current = true;
     morePendingRef.current = false;
+    if (syncFadeRef.current) clearTimeout(syncFadeRef.current);
+    setSyncState("saving");
     try {
       // Loop while changes keep accumulating
       // eslint-disable-next-line no-constant-condition
@@ -1660,11 +1765,28 @@ const App = () => {
           lastSyncedTsRef.current = res._meta.lastUpdated;
           lastSyncedVersionRef.current = res._meta.version;
         }
+        // The server merges docs by id; adopt the merged result so any docs the
+        // OTHER admin created/edited concurrently show up here right away and are
+        // not re-clobbered by our next push.
+        if (res && res.mergedState && Array.isArray(res.mergedState.docs)) {
+          const merged = res.mergedState.docs;
+          // Only re-render if it actually differs from what we already hold.
+          if (merged !== docsRef.current) {
+            isApplyingRemoteRef.current = true;
+            lastAppliedDocsRef.current = merged;
+            setDocs(merged);
+            setTimeout(() => { isApplyingRemoteRef.current = false; }, 50);
+          }
+        }
         if (!morePendingRef.current) break;
       }
+      setSyncState("saved");
+      if (syncFadeRef.current) clearTimeout(syncFadeRef.current);
+      syncFadeRef.current = setTimeout(() => setSyncState("idle"), 2000);
     } catch (e) {
       console.error("admin push failed", e);
       morePendingRef.current = true; // try again on next change
+      setSyncState("error");
     } finally {
       isPushingRef.current = false;
       if (queuedPullRef.current && !morePendingRef.current) {
@@ -1717,13 +1839,16 @@ const App = () => {
     }
   };
 
-  // On login, pull once
+  // On login, PUSH-merge rather than pull-replace. Because the server now
+  // merges docs by id, pushing our local state up can never lose a doc: the
+  // server keeps the union of (its docs + our local docs) and returns it via
+  // mergedState, which we adopt. This protects any local doc that wasn't yet
+  // synced (e.g. created offline) from being wiped by a plain pull-replace.
   useEffectA(() => {
     if (!adminAuth) return;
     setBootingAdmin(true);
-    if (doPullRef.current) doPullRef.current();
-    // Booting flag doesn't really need to await; pull is fire-and-forget
-    setTimeout(() => setBootingAdmin(false), 600);
+    if (doPushRef.current) doPushRef.current();
+    setTimeout(() => setBootingAdmin(false), 800);
   }, [adminAuth]);
 
   // Pull on window focus
@@ -1839,7 +1964,13 @@ const App = () => {
     return () => { cancelled = true; window.removeEventListener("focus", onFocus); };
   }, [docs.length]);
 
-  const showToast = (msg) => {setToast(msg);setTimeout(() => setToast(""), 2200);};
+  const toastTimerRef = React.useRef(null);
+  const showToast = (msg, action, ms) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast(msg);
+    setToastAction(action || null);
+    toastTimerRef.current = setTimeout(() => { setToast(""); setToastAction(null); }, ms || 2200);
+  };
 
   const openDoc = (id) => {
     setActiveDocId(id);
@@ -1902,9 +2033,29 @@ const App = () => {
   };
 
   const deleteDoc = (id) => {
-    if (!confirm("למחוק את המסמך? לא ניתן לשחזר.")) return;
-    setDocs((prev) => prev.filter((d) => d.id !== id));
-    showToast("המסמך נמחק");
+    const src = docs.find((d) => d.id === id);
+    if (!src) return;
+    // Soft-delete: replace the doc with a minimal tombstone (keeps the id so the
+    // deletion propagates through sync and can't be resurrected by the other
+    // admin's stale copy). The full doc is stashed for a few seconds so Undo can
+    // bring it back; after that only the tiny tombstone remains.
+    pendingDeleteRef.current[id] = src;
+    const tomb = { id, _deleted: true, deletedAt: Date.now(), updatedAt: Date.now() };
+    setDocs((prev) => prev.map((d) => d.id === id ? tomb : d));
+    showToast("המסמך נמחק", {
+      label: "ביטול",
+      fn: () => {
+        const saved = pendingDeleteRef.current[id];
+        if (!saved) return;
+        const restored = { ...saved, updatedAt: Date.now() };
+        delete restored._deleted; delete restored.deletedAt;
+        setDocs((prev) => prev.map((d) => d.id === id ? restored : d));
+        delete pendingDeleteRef.current[id];
+        showToast("המחיקה בוטלה");
+      },
+    }, 6000);
+    // Free the stashed copy after the undo window closes.
+    setTimeout(() => { delete pendingDeleteRef.current[id]; }, 6500);
   };
 
   // Create an independent copy of a document. Deep-clones all nested data
@@ -1926,6 +2077,7 @@ const App = () => {
     clone.name = "עותק · " + (src.name || "מסמך");
     clone.status = "draft";
     clone.createdAt = Date.now();
+    clone.updatedAt = Date.now();
     // Strip anything tying it to the original's share/sign lifecycle.
     delete clone.shareId;
     delete clone.shareToken;
@@ -2122,14 +2274,16 @@ const App = () => {
   };
 
   const updateDoc = (next) => {
-    if (sharedDoc && next.id === sharedDoc.id) {
-      setSharedDoc(next);
+    // Stamp updatedAt so the server merge-by-id can resolve concurrent edits.
+    const stamped = { ...next, updatedAt: Date.now() };
+    if (sharedDoc && stamped.id === sharedDoc.id) {
+      setSharedDoc(stamped);
       return;
     }
-    setDocs(docs.map((d) => d.id === next.id ? next : d));
+    setDocs(docs.map((d) => d.id === stamped.id ? stamped : d));
   };
 
-  const activeDoc = sharedDoc || docs.find((d) => d.id === activeDocId);
+  const activeDoc = sharedDoc || docs.find((d) => d.id === activeDocId && !d._deleted);
 
   const openShare = () => {
     if (!activeDoc) return;
@@ -2510,7 +2664,22 @@ const App = () => {
         highlightId={highlightSigId}
       />
 
-      <Toast message={toast} />
+      <Toast message={toast} action={toastAction} onAction={() => {
+        const fn = toastAction && toastAction.fn;
+        setToast(""); setToastAction(null);
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        if (fn) fn();
+      }} />
+
+      {adminAuth && syncState !== "idle" && view !== "counterparty" && (
+        <div className={"sync-indicator " + syncState}
+          onClick={() => { if (syncState === "error" && doPushRef.current) doPushRef.current(); }}
+          title={syncState === "error" ? "לחץ לניסיון חוזר" : ""}>
+          {syncState === "saving" && <><span className="sync-dot spin" /> מסנכרן…</>}
+          {syncState === "saved" && <><Icon name="check" size={13} /> נשמר בענן</>}
+          {syncState === "error" && <><Icon name="info" size={13} /> שגיאת שמירה · נסה שוב</>}
+        </div>
+      )}
     </>);
 
 };
