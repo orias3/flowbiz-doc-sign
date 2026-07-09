@@ -1,13 +1,31 @@
+// Shared admin state (docs library, vendors, saved signatures).
+//
+// Auth: HTTP Basic against ADMIN_EMAILS + ADMIN_PASSWORD env vars.
+//   Falls back to the historical built-in credentials when the env vars are
+//   not set, so a deploy without configuration never locks the admins out —
+//   but DO set them (and rotate the password) as soon as possible.
+//
+// Confidentiality: when STATE_SECRET is set, the state blob (and every new
+//   backup) is written AES-256-GCM-encrypted, so the public blob URL no
+//   longer exposes documents or signatures. Legacy plaintext blobs keep
+//   reading fine; the first write after enabling the secret re-encrypts.
+//
+// Concurrency: PUT merges per-entity by id (newest updatedAt/deletedAt wins)
+//   for docs, vendors AND saved signatures, so two admins editing different
+//   things concurrently never clobber each other.
+
 import { put, list, del } from '@vercel/blob';
+import { mergeById } from '../../lib/merge.js';
+import { encodeState, decodeState, getStateSecret } from '../../lib/state-crypto.js';
 
-const ADMIN_USERS = new Set([
-  'orias3@gmail.com',
-  'amitbens97@gmail.com',
-]);
-const ADMIN_PASSWORD = 'FlowBiz517268330';
+function adminUsers() {
+  const raw = process.env.ADMIN_EMAILS || 'orias3@gmail.com,amitbens97@gmail.com';
+  return new Set(raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
+}
+function adminPassword() {
+  return process.env.ADMIN_PASSWORD || 'FlowBiz517268330';
+}
 
-// Obscure path for the shared admin state blob — avoids casual discovery via
-// a guessable URL even though the blob is public-readable on Vercel.
 const STATE_PATH = 'admin/_aot_shared_state_d8f3k29l.json';
 const BACKUP_PREFIX = 'admin/backups/';
 const KEEP_BACKUPS = 40;
@@ -22,11 +40,11 @@ async function readState() {
   try {
     const r = await fetch(`${BLOB_BASE}/${STATE_PATH}?_cb=${Date.now()}_${Math.random().toString(36).slice(2)}`, { cache: 'no-store' });
     if (!r.ok) return null;
-    return await r.json();
+    return decodeState(await r.json());
   } catch { return null; }
 }
 async function writeState(payload) {
-  return put(STATE_PATH, JSON.stringify(payload), {
+  return put(STATE_PATH, encodeState(payload), {
     access: 'public',
     contentType: 'application/json',
     addRandomSuffix: false,
@@ -43,7 +61,7 @@ async function backupPrevState(prev) {
   const ver = (prev._meta && prev._meta.version) || 0;
   const ts = (prev._meta && prev._meta.lastUpdated) || Date.now();
   const key = `${BACKUP_PREFIX}v${String(ver).padStart(6, '0')}_${ts}.json`;
-  await put(key, JSON.stringify(prev), {
+  await put(key, encodeState(prev), {
     access: 'public',
     contentType: 'application/json',
     addRandomSuffix: false,
@@ -70,7 +88,7 @@ function authorizedEmail(req) {
   if (idx < 0) return null;
   const email = decoded.slice(0, idx).trim().toLowerCase();
   const pwd = decoded.slice(idx + 1);
-  if (!ADMIN_USERS.has(email) || pwd !== ADMIN_PASSWORD) return null;
+  if (!adminUsers().has(email) || pwd !== adminPassword()) return null;
   return email;
 }
 
@@ -123,7 +141,8 @@ export default async function handler(req, res) {
       const url = /^https?:\/\//.test(which) ? which : `${BLOB_BASE}/${which}`;
       const r = await fetch(url, { cache: 'no-store' });
       if (!r.ok) return res.status(404).json({ error: 'backup_not_found' });
-      const snap = await r.json();
+      const snap = decodeState(await r.json());
+      if (!snap) return res.status(422).json({ error: 'backup_unreadable', message: 'Backup is encrypted with a different STATE_SECRET' });
       // Back up the current state first, then write the restored snapshot as a new version.
       const prev = await readState();
       try { await backupPrevState(prev); } catch {}
@@ -145,7 +164,7 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const data = await readState();
     if (!data) {
-      return res.status(200).json({ docs: [], vendors: [], savedSignatures: [], _meta: { exists: false } });
+      return res.status(200).json({ docs: [], vendors: [], savedSignatures: [], _meta: { exists: false, encrypted: !!getStateSecret() } });
     }
     return res.status(200).json(data);
   }
@@ -161,37 +180,13 @@ export default async function handler(req, res) {
     // Safety net: snapshot the previous state before we overwrite it.
     try { await backupPrevState(prev); } catch (e) { /* never block the write */ }
 
-    // ── Merge docs by id (the data-loss fix) ──
-    // Each doc carries updatedAt; deletions are tombstones ({_deleted, deletedAt}).
-    // We union the server's docs with the incoming docs, and for each id keep the
-    // entry with the newest timestamp. This means two admins editing DIFFERENT
-    // docs concurrently never clobber each other, and a doc created by one admin
-    // is never dropped just because the other admin pushed a stale full list.
-    const incoming = Array.isArray(body.docs) ? body.docs : [];
-    const prevDocs = (prev && Array.isArray(prev.docs)) ? prev.docs : [];
-    const stamp = (d) => Math.max(Number(d && d.updatedAt) || 0, Number(d && d.deletedAt) || 0);
-    const byId = new Map();
-    for (const d of prevDocs) { if (d && d.id) byId.set(d.id, d); }
-    for (const d of incoming) {
-      if (!d || !d.id) continue;
-      const existing = byId.get(d.id);
-      // If neither has a timestamp (legacy docs), incoming wins (matches old
-      // last-write behavior). Otherwise the newer timestamp wins.
-      if (!existing || stamp(d) >= stamp(existing)) byId.set(d.id, d);
-    }
-    // Prune tombstones older than 60 days so the array doesn't grow forever.
-    const TOMB_TTL = 60 * 24 * 60 * 60 * 1000;
-    const now = Date.now();
-    const mergedDocs = Array.from(byId.values()).filter(
-      (d) => !(d && d._deleted && d.deletedAt && (now - d.deletedAt) > TOMB_TTL)
-    );
-
+    // Merge every collection by id — deletions travel as tombstones
+    // ({_deleted, deletedAt}), the newest updatedAt/deletedAt wins per id, so
+    // concurrent edits by two admins to different entities never conflict.
     const payload = {
-      docs: mergedDocs,
-      // Vendors + saved signatures keep the existing incoming-replaces behavior
-      // (unchanged, low churn) so their deletion semantics stay intuitive.
-      vendors: Array.isArray(body.vendors) ? body.vendors : ((prev && prev.vendors) || []),
-      savedSignatures: Array.isArray(body.savedSignatures) ? body.savedSignatures : ((prev && prev.savedSignatures) || []),
+      docs: mergeById(prev && prev.docs, body.docs),
+      vendors: mergeById(prev && prev.vendors, body.vendors),
+      savedSignatures: mergeById(prev && prev.savedSignatures, body.savedSignatures),
       _meta: {
         version: prevVersion + 1,
         lastUpdated: Date.now(),
@@ -202,7 +197,7 @@ export default async function handler(req, res) {
     try {
       await writeState(payload);
       // Return the merged state so the pushing client immediately adopts any
-      // docs the other admin created/edited concurrently.
+      // entities the other admin created/edited concurrently.
       return res.status(200).json({
         ok: true,
         _meta: payload._meta,

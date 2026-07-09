@@ -16,12 +16,45 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
   const [selectedField, setSelectedField] = useStateE(null);
   const stageRef = useRefE(null);
 
+  // ── Multi-signer support ──
+  // doc.signers (optional) = [{ id, name, email, order, status }]. Counterparty
+  // fields may carry f.signer = <signer id>; fields without it belong to the
+  // first signer. No signers array → classic single-signer behavior.
+  const signers = Array.isArray(doc.signers) ? doc.signers.filter(Boolean) : [];
+  const multiSigner = signers.length > 1;
+  const [signerSel, setSignerSel] = useStateE(null); // which signer new "them" fields belong to
+  const activeSignerId = signerSel || (signers[0] && signers[0].id) || null;
+  const signerOf = (f) => (f.signer || (signers[0] && signers[0].id) || null);
+  const signerName = (id) => {
+    const s = signers.find((x) => x.id === id);
+    return (s && s.name) || "הצד השני";
+  };
+  const signerShort = (id) => signerName(id).split(" ")[0];
+
   const myFields = doc.fields.filter(f => f.assignee === "me");
   const theirFields = doc.fields.filter(f => f.assignee === "them");
   const mySigned = myFields.filter(f => f.value).length;
   const theirSigned = theirFields.filter(f => f.value).length;
 
   const updateDoc = (next) => onUpdate({ ...doc, ...next });
+
+  const addSigner = () => {
+    if (signers.length >= 5) return;
+    const fresh = { id: "sg-" + genId(), name: "", email: "", order: signers.length, status: "pending" };
+    updateDoc({ signers: [...signers, fresh] });
+  };
+  const updateSigner = (id, patch) => {
+    updateDoc({ signers: signers.map((s) => (s.id === id ? { ...s, ...patch } : s)) });
+  };
+  const removeSigner = (id) => {
+    const rest = signers.filter((s) => s.id !== id).map((s, i) => ({ ...s, order: i }));
+    updateDoc({
+      signers: rest.length ? rest : undefined,
+      // Fields that pointed at the removed signer fall back to the first signer.
+      fields: doc.fields.map((f) => (f.signer === id ? { ...f, signer: undefined } : f)),
+    });
+    if (signerSel === id) setSignerSel(null);
+  };
 
   // Place a field on click
   const handlePageClick = (e, pageIdx) => {
@@ -40,6 +73,8 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
       w: t.w,
       h: t.h,
       assignee,
+      // In multi-signer docs, tag the field with the signer it belongs to.
+      signer: assignee === "them" && multiSigner ? activeSignerId : undefined,
       value: null,
     };
     // If it's "me" tool, auto-fill where possible
@@ -177,7 +212,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
       >
         {!isSystem && (
           <div className="field-tag">
-            {field.assignee === "me" ? "אתה" : "הצד השני"} · {TOOLS.find(t=>t.id===field.type)?.name}
+            {field.assignee === "me" ? "אתה" : (multiSigner ? signerShort(signerOf(field)) : "הצד השני")} · {TOOLS.find(t=>t.id===field.type)?.name}
           </div>
         )}
         {viewMode === "owner" && !isSystem && !isReadOnly && (
@@ -477,15 +512,76 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
                 <button className={assignee === "me" ? "active me" : ""} onClick={() => setAssignee("me")}>
                   <span className="assignee-dot me"/> אני
                 </button>
-                <button className={assignee === "them" ? "active them" : ""} onClick={() => setAssignee("them")}>
-                  <span className="assignee-dot them"/> {template?.counterparty?.split(" ")[0] || "הצד השני"}
-                </button>
+                {multiSigner ? (
+                  signers.map((s) => (
+                    <button key={s.id}
+                      className={assignee === "them" && activeSignerId === s.id ? "active them" : ""}
+                      onClick={() => { setAssignee("them"); setSignerSel(s.id); }}>
+                      <span className="assignee-dot them"/> {(s.name || "חותם").split(" ")[0]}
+                    </button>
+                  ))
+                ) : (
+                  <button className={assignee === "them" ? "active them" : ""} onClick={() => setAssignee("them")}>
+                    <span className="assignee-dot them"/> {(signers[0] && signers[0].name && signers[0].name.split(" ")[0]) || template?.counterparty?.split(" ")[0] || "הצד השני"}
+                  </button>
+                )}
               </div>
               <p style={{ fontSize: 11.5, color: "var(--gray-500)", margin: "8px 2px 0", lineHeight: 1.5 }}>
                 {assignee === "me"
                   ? "השדות שתוסיף יסומנו בכחול ויחתמו על ידך באופן מיידי."
-                  : "השדות יסומנו בכתום וימתינו לחתימת הצד השני."}
+                  : multiSigner
+                    ? `השדות יסומנו בכתום וימתינו לחתימה של ${signerName(activeSignerId)}.`
+                    : "השדות יסומנו בכתום וימתינו לחתימת הצד השני."}
               </p>
+            </div>
+
+            <div className="side-group">
+              <p className="side-title">חותמים ({signers.length || 1})</p>
+              {signers.length === 0 ? (
+                <p style={{ fontSize: 11.5, color: "var(--gray-500)", margin: "0 2px 8px", lineHeight: 1.5 }}>
+                  כברירת מחדל יש חותם אחד — הצד השני. אפשר להוסיף חותמים נוספים,
+                  וכל אחד יקבל קישור אישי לחתימה לפי הסדר.
+                </p>
+              ) : (
+                <div className="signers-list">
+                  {signers.map((s, i) => (
+                    <div key={s.id} className="signer-row">
+                      <span className="signer-num">{i + 1}</span>
+                      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+                        <input
+                          className="signer-input"
+                          placeholder={`שם החותם ${i + 1}`}
+                          value={s.name}
+                          onChange={(e) => updateSigner(s.id, { name: e.target.value })}
+                        />
+                        <input
+                          className="signer-input" dir="ltr" type="email"
+                          placeholder="email@example.com"
+                          value={s.email}
+                          onChange={(e) => updateSigner(s.id, { email: e.target.value })}
+                        />
+                      </div>
+                      {s.status === "signed"
+                        ? <Icon name="check-circle" size={15} color="var(--green-600)" />
+                        : (
+                          <button className="qicon-btn danger" title="הסרת חותם" onClick={() => removeSigner(s.id)}>
+                            <Icon name="trash" size={13} />
+                          </button>
+                        )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {signers.length < 5 && (
+                <button className="btn btn-soft btn-sm" style={{ width: "100%", justifyContent: "center", marginTop: 8 }} onClick={addSigner}>
+                  <Icon name="plus" size={13} /> {signers.length === 0 ? "הגדרת חותמים במקום ברירת המחדל" : "הוספת חותם נוסף"}
+                </button>
+              )}
+              {multiSigner && (
+                <p style={{ fontSize: 11.5, color: "var(--gray-500)", margin: "8px 2px 0", lineHeight: 1.5 }}>
+                  החתימה מתבצעת לפי הסדר: כל חותם מקבל מייל אוטומטי כשהגיע תורו.
+                </p>
+              )}
             </div>
 
             <div className="side-group">

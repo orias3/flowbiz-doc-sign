@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "flowbiz-sign",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["scripts/dev-server.mjs"],
+      "port": 4173,
+      "env": { "ADMIN_PASSWORD": "local-test-pass-123" }
+    }
+  ]
+}

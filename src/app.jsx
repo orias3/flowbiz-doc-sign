@@ -17,22 +17,60 @@ function saveDocs(docs) {
 function loadSig() {try {return localStorage.getItem(SIG_KEY);} catch {return null;}}
 function saveSig(s) {try {localStorage.setItem(SIG_KEY, s);} catch {}}
 
-function loadVendors() {
+// Vendors + saved signatures are synced across admins with per-item
+// updatedAt stamps and soft-delete tombstones ({_deleted, deletedAt}), so the
+// server can merge concurrent edits by id instead of last-write-wins.
+// loadX() returns only live items (what the UI shows); loadXAll() includes
+// tombstones (what we push to the server so deletions propagate).
+function loadVendorsAll() {
   try { return JSON.parse(localStorage.getItem(VENDORS_KEY)) || []; } catch { return []; }
 }
-function saveVendors(vendors) {
+function loadVendors() {
+  return loadVendorsAll().filter((v) => v && !v._deleted);
+}
+function saveVendorsAll(vendors) {
   try { localStorage.setItem(VENDORS_KEY, JSON.stringify(vendors)); } catch {}
+}
+// Insert or update a vendor (stamps updatedAt), preserving tombstones.
+function upsertVendor(vendor) {
+  const all = loadVendorsAll();
+  const stamped = { ...vendor, updatedAt: Date.now() };
+  const idx = all.findIndex((v) => v && v.id === stamped.id);
+  if (idx >= 0) all[idx] = stamped; else all.unshift(stamped);
+  saveVendorsAll(all);
+}
+function softDeleteVendor(id) {
+  const all = loadVendorsAll().map((v) =>
+    v && v.id === id ? { id, _deleted: true, deletedAt: Date.now(), updatedAt: Date.now() } : v
+  );
+  saveVendorsAll(all);
 }
 
 // Saved signatures library — assign one signature image per named person.
 // Used to auto-fill multi-signatory documents (e.g. bank transfer) without
 // re-drawing every time.
 const SAVED_SIGS_KEY = "flowbiz-saved-signatures-v1";
-function loadSavedSignatures() {
+function loadSavedSignaturesAll() {
   try { return JSON.parse(localStorage.getItem(SAVED_SIGS_KEY)) || []; } catch { return []; }
 }
-function saveSavedSignatures(sigs) {
+function loadSavedSignatures() {
+  return loadSavedSignaturesAll().filter((s) => s && !s._deleted);
+}
+function saveSavedSignaturesAll(sigs) {
   try { localStorage.setItem(SAVED_SIGS_KEY, JSON.stringify(sigs)); } catch {}
+}
+function upsertSavedSignature(sig) {
+  const all = loadSavedSignaturesAll();
+  const stamped = { ...sig, updatedAt: Date.now() };
+  const idx = all.findIndex((s) => s && s.id === stamped.id);
+  if (idx >= 0) all[idx] = stamped; else all.unshift(stamped);
+  saveSavedSignaturesAll(all);
+}
+function softDeleteSavedSignature(id) {
+  const all = loadSavedSignaturesAll().map((s) =>
+    s && s.id === id ? { id, _deleted: true, deletedAt: Date.now(), updatedAt: Date.now() } : s
+  );
+  saveSavedSignaturesAll(all);
 }
 function findSavedSignatureByName(name) {
   const norm = String(name || "").trim().toLowerCase();
@@ -44,17 +82,14 @@ function findSavedSignatureByName(name) {
 // Expose to other scripts (editor, client view) so they can decide whether to
 // open the picker vs. auto-fill mySignature.
 window.loadSavedSignatures = loadSavedSignatures;
-window.saveSavedSignatures = saveSavedSignatures;
+window.upsertSavedSignature = upsertSavedSignature;
 window.findSavedSignatureByName = findSavedSignatureByName;
 
 // ── Admin auth + cross-device sync ─────────────────────────────────────────
-// Two pre-shared admin credentials. Both see and edit the same docs library,
-// vendors list, and saved signatures via the /api/admin/state endpoint.
+// Credentials are validated by the SERVER only (/api/admin/state responds 401
+// on a bad email/password) — nothing secret ships in this bundle. All admins
+// see and edit the same docs library, vendors list, and saved signatures.
 const ADMIN_AUTH_KEY = "flowbiz-admin-auth-v1";
-const ADMIN_USERS = [
-  { email: "orias3@gmail.com", pwd: "FlowBiz517268330" },
-  { email: "amitbens97@gmail.com", pwd: "FlowBiz517268330" },
-];
 
 function loadAdminAuth() {
   try {
@@ -170,27 +205,56 @@ async function apiCreateShare(doc) {
 }
 async function apiGetShare(id) {
   const r = await fetch(`/api/share?id=${encodeURIComponent(id)}`, { cache: "no-store" });
+  if (r.status === 410) { const err = new Error("expired"); err.expired = true; throw err; }
   if (!r.ok) throw new Error("get_failed");
   return r.json();
 }
-async function apiUpdateShare(id, doc) {
+// Owner edit of an already-shared doc. Requires the doc's ownerKey.
+async function apiUpdateShare(id, doc, ownerKey) {
   const r = await fetch(`/api/share?id=${encodeURIComponent(id)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(doc),
+    body: JSON.stringify({ ...doc, ownerKey }),
   });
   if (!r.ok) throw new Error("update_failed");
   return r.json();
 }
+// Signer submission — no key needed; the server runs a restricted merge that
+// can only fill this signer's field values + completion stamp.
+async function apiSignShare(id, doc, signerId) {
+  const r = await fetch(`/api/share?id=${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...doc, kind: "sign", signerId: signerId || undefined }),
+  });
+  if (!r.ok) throw new Error("sign_failed");
+  return r.json();
+}
+async function apiPatchShare(id, patch) {
+  const r = await fetch(`/api/share?id=${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  const data = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, data };
+}
 
 function sanitizeForCounterparty(doc) {
-  // Drop "them" field values so the client always starts with empty markers.
-  return {
+  // Drop "them" field values so the client always starts with empty markers,
+  // and strip everything the counterparty must never receive (owner key,
+  // audit metadata, emails bookkeeping).
+  const clean = {
     ...doc,
     fields: (doc.fields || []).map((f) => f.assignee === "them" ? { ...f, value: null } : f),
     sender: doc.sender || "איי או טי סטארטפס בע״מ",
     status: doc.status === "completed" ? "draft" : doc.status,
   };
+  delete clean.shareOwnerKey;
+  delete clean.audit;
+  delete clean._invites;
+  delete clean._reminders;
+  return clean;
 }
 
 // Per-template display metadata (label + icon + colors), shared by the card
@@ -900,7 +964,7 @@ const QuoteFormModal = ({ open, onClose, onSubmit, initial }) => {
   );
 };
 
-const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, defaultClientEmail }) => {
+const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, onDocPatched, defaultClientEmail }) => {
   const [copied, setCopied] = useStateA(false);
   const [busy, setBusy] = useStateA(false);
   const [err, setErr] = useStateA("");
@@ -917,28 +981,59 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, defaultClien
     if (doc.shareId) { setShareId(doc.shareId); return; }
     setBusy(true); setErr("");
     apiCreateShare(sanitizeForCounterparty(doc))
-      .then(({ id }) => { setShareId(id); onShareReady && onShareReady(id); })
+      .then(({ id, ownerKey }) => { setShareId(id); onShareReady && onShareReady(id, ownerKey); })
       .catch((e) => setErr("נכשלה יצירת קישור — נסה שוב"))
       .finally(() => setBusy(false));
   }, [open, doc && doc.id]);
 
+  const [signerEmailing, setSignerEmailing] = useStateA({}); // signerId -> 'busy' | 'sent' | 'err'
+  const [copiedSigner, setCopiedSigner] = useStateA(null);
+
   if (!doc) return null;
   const url = shareId ? buildShortUrl(shareId) : "טוען...";
+  const signers = Array.isArray(doc.signers) ? doc.signers.filter(Boolean) : [];
+  const multiSigner = signers.length > 1;
+  const signerUrl = (s) => (shareId ? `${buildShortUrl(shareId)}?sg=${encodeURIComponent(s.id)}` : "טוען...");
 
   const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail.trim());
+
+  const copySignerLink = (s) => {
+    if (!shareId) return;
+    navigator.clipboard.writeText(signerUrl(s));
+    setCopiedSigner(s.id);
+    setTimeout(() => setCopiedSigner(null), 1600);
+  };
+  const inviteSigner = async (s) => {
+    if (!shareId || !s.email || signerEmailing[s.id] === "busy") return;
+    setSignerEmailing((m) => ({ ...m, [s.id]: "busy" }));
+    const { ok } = await apiPatchShare(shareId, { kind: "invite", signerId: s.id, ownerKey: doc.shareOwnerKey });
+    setSignerEmailing((m) => ({ ...m, [s.id]: ok ? "sent" : "err" }));
+  };
+
+  // Link expiry — optional; existing links never expire unless set here.
+  const expiryDays = doc.expiresAt
+    ? Math.max(1, Math.ceil((Number(doc.expiresAt) - Date.now()) / 86400000))
+    : 0;
+  const setExpiry = async (days) => {
+    if (!shareId) return;
+    const expiresAt = days ? Date.now() + days * 86400000 : null;
+    const { ok } = await apiPatchShare(shareId, { expiresAt, ownerKey: doc.shareOwnerKey });
+    if (ok && onDocPatched) onDocPatched(expiresAt ? { expiresAt } : { expiresAt: undefined });
+  };
 
   const sendViaServerEmail = async () => {
     if (!shareId || !validEmail || emailing) return;
     setEmailing(true); setEmailSent(false); setEmailHint("");
     try {
-      const r = await fetch(`/api/share?id=${encodeURIComponent(shareId)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientEmail: clientEmail.trim(), kind: "invite" }),
+      const { ok, status, data } = await apiPatchShare(shareId, {
+        clientEmail: clientEmail.trim(),
+        kind: "invite",
+        ownerKey: doc.shareOwnerKey,
       });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        if (r.status === 503) {
+      if (!ok) {
+        if (status === 429) {
+          setEmailHint("נשלחו יותר מדי מיילים למסמך הזה בשעה האחרונה — נסו שוב מאוחר יותר.");
+        } else if (status === 503) {
           // Email not configured server-side — fall back to mailto:
           window.open(`mailto:${encodeURIComponent(clientEmail.trim())}?subject=${encodeURIComponent("מסמך לחתימה: " + doc.name)}&body=${encodeURIComponent("שלום,\n\nמצורף קישור לחתימה על המסמך:\n" + url + "\n\nתודה!")}`);
           setEmailHint("נפתח אצלך לקוח המייל — שלח/י ידנית. (לשליחה אוטומטית, נדרשת התקנת מפתח Resend בשרת)");
@@ -970,6 +1065,42 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, defaultClien
     title="שלח לחתימה"
     subtitle={`הקישור הזה ייפתח אצל ${DOC_TEMPLATES[doc.template]?.counterparty || "הצד השני"} עם המסמך החתום מצידך וההזמנה להשלים את החתימה.`}>
       
+      {multiSigner && (
+        <div className="share-signers">
+          <div className="share-email-title" style={{ marginBottom: 10 }}>
+            <Icon name="users" size={14} color="var(--blue-600)" /> קישור אישי לכל חותם — לפי סדר החתימה
+          </div>
+          {signers.map((s, i) => (
+            <div key={s.id} className="share-signer-row">
+              <span className="signer-num">{i + 1}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--gray-800)" }}>
+                  {s.name || `חותם ${i + 1}`}
+                  {s.status === "signed" && <span className="pill pill-ok" style={{ marginInlineStart: 6 }}><Icon name="check" size={10} /> חתם/ה</span>}
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--gray-500)", direction: "ltr", textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{signerUrl(s)}</div>
+              </div>
+              <button className="btn btn-soft btn-sm" disabled={!shareId} onClick={() => copySignerLink(s)}>
+                <Icon name={copiedSigner === s.id ? "check" : "copy"} size={13} /> {copiedSigner === s.id ? "הועתק" : "קישור"}
+              </button>
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={!shareId || !s.email || signerEmailing[s.id] === "busy" || signerEmailing[s.id] === "sent"}
+                title={!s.email ? "לא הוגדר מייל לחותם — אפשר להוסיף בעורך" : ""}
+                onClick={() => inviteSigner(s)}
+              >
+                <Icon name={signerEmailing[s.id] === "sent" ? "check" : "send"} size={13} />
+                {signerEmailing[s.id] === "busy" ? "שולח..." : signerEmailing[s.id] === "sent" ? "נשלח" : "מייל"}
+              </button>
+            </div>
+          ))}
+          <div className="share-email-foot" style={{ marginTop: 8 }}>
+            החתימה מתבצעת לפי הסדר. כשחותם מסיים — הבא בתור מקבל מייל אוטומטית, ובסיום כולם מקבלים עותק חתום.
+          </div>
+        </div>
+      )}
+
+      {!multiSigner && (
       <div className="share-link-row">
         <input value={url} readOnly onClick={(e) => e.target.select()} />
         <button className="btn btn-primary btn-sm" onClick={copy}>
@@ -977,7 +1108,10 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, defaultClien
           {copied ? "הועתק!" : "העתקה"}
         </button>
       </div>
+      )}
 
+      {!multiSigner && (
+      <>
       <div className="share-channels">
         <button className="channel-btn" disabled={!shareId} onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent("שלום, מצורף קישור לחתימה על המסמך: " + url)}`)}>
           <div className="channel-icon" style={{ background: "#25D366" }}><Icon name="whatsapp" size={22} color="#fff" /></div>
@@ -1019,6 +1153,33 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, defaultClien
           לאחר שהצד השני יחתום וישלח חזרה, יישלח אליו עותק חתום למייל זה אוטומטית.
         </div>
       </div>
+      </>
+      )}
+
+      <div className="share-expiry-row">
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Icon name="clock" size={14} color="var(--blue-600)" />
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--gray-800)" }}>תוקף הקישור</span>
+        </div>
+        <select
+          className="share-expiry-select"
+          disabled={!shareId}
+          value={expiryDays === 0 ? "0" : expiryDays <= 7 ? "7" : expiryDays <= 14 ? "14" : "30"}
+          onChange={(e) => setExpiry(Number(e.target.value))}
+        >
+          <option value="0">ללא הגבלה</option>
+          <option value="7">שבוע</option>
+          <option value="14">שבועיים</option>
+          <option value="30">חודש</option>
+        </select>
+        {doc.expiresAt ? (
+          <span style={{ fontSize: 11.5, color: "var(--gray-500)" }}>
+            בתוקף עד {new Date(Number(doc.expiresAt)).toLocaleDateString("he-IL")}
+          </span>
+        ) : (
+          <span style={{ fontSize: 11.5, color: "var(--gray-500)" }}>הקישור יישאר פעיל ללא מגבלת זמן</span>
+        )}
+      </div>
 
       {err && (
         <div style={{ marginTop: 12, background: "var(--red-50)", border: "1px solid #FCA5A5", borderRadius: 14, padding: "12px 14px", display: "flex", gap: 10, alignItems: "center" }}>
@@ -1044,7 +1205,7 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, defaultClien
 
 };
 
-const SavedSignaturesModal = ({ open, onClose, refreshKey, onDrawNew, highlightId }) => {
+const SavedSignaturesModal = ({ open, onClose, refreshKey, onDrawNew, highlightId, onChanged }) => {
   const [sigs, setSigs] = useStateA(() => loadSavedSignatures());
   const fileRef = React.useRef(null);
   const highlightInputRef = React.useRef(null);
@@ -1067,7 +1228,7 @@ const SavedSignaturesModal = ({ open, onClose, refreshKey, onDrawNew, highlightI
     return () => clearTimeout(t);
   }, [open, highlightId, refreshKey]);
 
-  const persist = (next) => { setSigs(next); saveSavedSignatures(next); };
+  const refresh = () => setSigs(loadSavedSignatures());
 
   const onUpload = (e) => {
     const file = e.target.files && e.target.files[0];
@@ -1077,16 +1238,26 @@ const SavedSignaturesModal = ({ open, onClose, refreshKey, onDrawNew, highlightI
     reader.onload = () => {
       const fname = (file.name || "חתימה").replace(/\.(png|jpg|jpeg|svg)$/i, "");
       const fresh = { id: "sig-" + genId(), name: fname, dataUrl: reader.result, createdAt: Date.now() };
-      persist([fresh, ...sigs]);
+      upsertSavedSignature(fresh);
+      refresh();
+      onChanged && onChanged();
     };
     reader.readAsDataURL(file);
     e.target.value = "";
   };
 
-  const updateName = (id, name) => persist(sigs.map((s) => s.id === id ? { ...s, name } : s));
+  const updateName = (id, name) => {
+    const target = sigs.find((s) => s.id === id);
+    if (!target) return;
+    upsertSavedSignature({ ...target, name });
+    refresh();
+    onChanged && onChanged();
+  };
   const deleteSig = (id) => {
     if (!confirm("למחוק את החתימה השמורה?")) return;
-    persist(sigs.filter((s) => s.id !== id));
+    softDeleteSavedSignature(id);
+    refresh();
+    onChanged && onChanged();
   };
 
   return (
@@ -1197,7 +1368,7 @@ const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedReso
     });
   };
 
-  const persistVendors = (next) => { setVendors(next); saveVendors(next); if (onVendorsChanged) onVendorsChanged(); };
+  const afterVendorChange = () => { setVendors(loadVendors()); if (onVendorsChanged) onVendorsChanged(); };
 
   const saveAsNewVendor = () => {
     const name = (data.beneficiaryName || "").trim();
@@ -1211,27 +1382,31 @@ const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedReso
       purpose: data.paymentPurpose || "",
       createdAt: Date.now(),
     };
-    persistVendors([v, ...vendors]);
+    upsertVendor(v);
+    afterVendorChange();
     setSelectedVendorId(v.id);
   };
 
   const updateSelectedVendor = () => {
     if (!selectedVendorId) return;
-    const next = vendors.map((v) => v.id === selectedVendorId ? {
-      ...v,
+    const current = vendors.find((v) => v.id === selectedVendorId);
+    if (!current) return;
+    upsertVendor({
+      ...current,
       name: (data.beneficiaryName || "").trim(),
       bank: data.beneficiaryBank || "",
       branch: data.beneficiaryBranch || "",
       account: data.beneficiaryAccount || "",
       purpose: data.paymentPurpose || "",
-    } : v);
-    persistVendors(next);
+    });
+    afterVendorChange();
   };
 
   const deleteSelectedVendor = () => {
     if (!selectedVendorId) return;
     if (!confirm("למחוק את הספק השמור?")) return;
-    persistVendors(vendors.filter((v) => v.id !== selectedVendorId));
+    softDeleteVendor(selectedVendorId);
+    afterVendorChange();
     setSelectedVendorId("");
   };
 
@@ -1614,14 +1789,14 @@ const LoginModal = ({ open, onLogin }) => {
   const submit = async () => {
     setErr("");
     const e = email.trim().toLowerCase();
-    const match = ADMIN_USERS.find((u) => u.email === e && u.pwd === pwd);
-    if (!match) { setErr("אימייל או סיסמה שגויים"); return; }
-    const basicAuth = "Basic " + btoa(unescape(encodeURIComponent(`${match.email}:${match.pwd}`)));
+    if (!e || !pwd) return;
+    const basicAuth = "Basic " + btoa(unescape(encodeURIComponent(`${e}:${pwd}`)));
     setBusy(true);
     try {
       const r = await fetch("/api/admin/state", { headers: { "Authorization": basicAuth }, cache: "no-store" });
-      if (r.status === 401) { setErr("הסיסמה אומתה מקומית אך השרת דחה — נסה/י שוב"); return; }
-      onLogin({ email: match.email, basicAuth, loggedInAt: Date.now() });
+      if (r.status === 401) { setErr("אימייל או סיסמה שגויים"); return; }
+      if (!r.ok) { setErr("שגיאת שרת — נסה/י שוב בעוד רגע"); return; }
+      onLogin({ email: e, basicAuth, loggedInAt: Date.now() });
     } catch (ex) {
       setErr("שגיאת תקשורת — נסה/י שוב");
     } finally {
@@ -1677,7 +1852,9 @@ const App = () => {
   const [sigUpdateMain, setSigUpdateMain] = useStateA(true);
   const [sharedDoc, setSharedDoc] = useStateA(null);   // doc fetched from API (client view)
   const [sharedId, setSharedId] = useStateA(null);     // share id of the doc currently open in client view
+  const [signerId, setSignerId] = useStateA(null);     // multi-signer: which signer this link belongs to (?sg=)
   const [shareError, setShareError] = useStateA(false);
+  const [shareErrorKind, setShareErrorKind] = useStateA("");
   const [shareLoading, setShareLoading] = useStateA(false);
   // Admin auth + sync state
   const [adminAuth, setAdminAuth] = useStateA(() => loadAdminAuth());
@@ -1731,8 +1908,9 @@ const App = () => {
         morePendingRef.current = false;
         const snapshot = {
           docs: docsRef.current,
-          vendors: loadVendors(),
-          savedSignatures: loadSavedSignatures(),
+          // Full lists incl. tombstones — deletions must reach the other admin.
+          vendors: loadVendorsAll(),
+          savedSignatures: loadSavedSignaturesAll(),
           _clientLastSeenVersion: lastSyncedVersionRef.current,
         };
         const res = await apiAdminStatePut(snapshot, adminAuth);
@@ -1753,8 +1931,8 @@ const App = () => {
               lastAppliedDocsRef.current = cs.docs;
               setDocs(cs.docs);
             }
-            if (Array.isArray(cs.savedSignatures)) saveSavedSignatures(cs.savedSignatures);
-            if (Array.isArray(cs.vendors)) saveVendors(cs.vendors);
+            if (Array.isArray(cs.savedSignatures)) saveSavedSignaturesAll(cs.savedSignatures);
+            if (Array.isArray(cs.vendors)) saveVendorsAll(cs.vendors);
             setSavedSigsRefreshKey((k) => k + 1);
             setVendorBump((v) => v + 1);
             setTimeout(() => { isApplyingRemoteRef.current = false; }, 50);
@@ -1777,6 +1955,10 @@ const App = () => {
             setDocs(merged);
             setTimeout(() => { isApplyingRemoteRef.current = false; }, 50);
           }
+          // The server also merges vendors/signatures by id — adopt them so a
+          // concurrent edit by the other admin is visible immediately.
+          if (Array.isArray(res.mergedState.vendors)) saveVendorsAll(res.mergedState.vendors);
+          if (Array.isArray(res.mergedState.savedSignatures)) saveSavedSignaturesAll(res.mergedState.savedSignatures);
         }
         if (!morePendingRef.current) break;
       }
@@ -1829,8 +2011,8 @@ const App = () => {
         lastAppliedDocsRef.current = state.docs;
         setDocs(state.docs);
       }
-      if (Array.isArray(state.savedSignatures)) saveSavedSignatures(state.savedSignatures);
-      if (Array.isArray(state.vendors)) saveVendors(state.vendors);
+      if (Array.isArray(state.savedSignatures)) saveSavedSignaturesAll(state.savedSignatures);
+      if (Array.isArray(state.vendors)) saveVendorsAll(state.vendors);
       setSavedSigsRefreshKey((k) => k + 1);
       setVendorBump((v) => v + 1);
       setTimeout(() => { isApplyingRemoteRef.current = false; }, 50);
@@ -1886,12 +2068,38 @@ const App = () => {
 
       if (pathMatch) {
         const id = pathMatch[1];
-        setSharedId(id); setShareError(false); setShareLoading(true); setView("counterparty"); setActiveDocId(null);
+        let sg = new URLSearchParams(location.search).get("sg") || null;
+        setSharedId(id); setSignerId(sg); setShareError(false); setShareErrorKind(""); setShareLoading(true); setView("counterparty"); setActiveDocId(null);
         try {
-          const doc = await apiGetShare(id);
+          let doc = await apiGetShare(id);
+          const signers = Array.isArray(doc.signers) ? doc.signers.filter(Boolean) : [];
+          // A plain link (no ?sg=) on a multi-signer doc belongs to whoever's
+          // turn it is — the first signer that hasn't signed yet.
+          if (signers.length && !sg) {
+            const pending = signers
+              .slice()
+              .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0))
+              .find((s) => s.status !== "signed") || signers[0];
+            sg = pending && pending.id;
+            setSignerId(sg);
+          }
+          // Multi-signer link: fields that belong to OTHER signers are shown
+          // like the sender's fields — visible when filled, hidden when empty,
+          // never interactive. Only this signer's fields stay actionable.
+          if (signers.length && sg) {
+            const firstId = signers[0] && signers[0].id;
+            doc = {
+              ...doc,
+              fields: (doc.fields || []).map((f) =>
+                f && f.assignee === "them" && (f.signer || firstId) !== sg
+                  ? { ...f, assignee: "me" }
+                  : f
+              ),
+            };
+          }
           setSharedDoc(doc); setShareError(false);
         } catch (e) {
-          setSharedDoc(null); setShareError(true);
+          setSharedDoc(null); setShareError(true); setShareErrorKind(e && e.expired ? "expired" : "");
         } finally {
           setShareLoading(false);
         }
@@ -1942,8 +2150,28 @@ const App = () => {
       const updates = await Promise.all(shared.map(async (d) => {
         try {
           const remote = await apiGetShare(d.shareId);
-          if (remote && remote.status === "completed" && d.status !== "completed") {
-            return { ...d, ...remote, id: d.id, shareId: d.shareId };
+          if (!remote) return null;
+          // Merge remote signers into local ones, keeping local email addresses
+          // (the public doc view strips signer emails on purpose).
+          const mergeSigners = () => {
+            if (!Array.isArray(remote.signers)) return d.signers;
+            const local = Array.isArray(d.signers) ? d.signers : [];
+            return remote.signers.map((rs) => ({ ...(local.find((ls) => ls && ls.id === rs.id) || {}), ...rs }));
+          };
+          if (remote.status === "completed" && d.status !== "completed") {
+            return {
+              doc: { ...d, ...remote, id: d.id, shareId: d.shareId, signers: mergeSigners() },
+              completed: true,
+            };
+          }
+          // Partial progress (e.g. one of several signers signed): adopt the
+          // remote signatures + audit so the library reflects reality.
+          const remoteTs = Number(remote.updatedAt) || 0;
+          if (remoteTs && remoteTs > (Number(d.remoteSyncedAt) || 0) && Array.isArray(remote.fields)) {
+            return {
+              doc: { ...d, fields: remote.fields, signers: mergeSigners(), audit: remote.audit || d.audit, remoteSyncedAt: remoteTs, updatedAt: Date.now() },
+              completed: false,
+            };
           }
         } catch (_) {}
         return null;
@@ -1952,10 +2180,11 @@ const App = () => {
       const changed = updates.filter(Boolean);
       if (changed.length) {
         setDocs((prev) => prev.map((d) => {
-          const upd = changed.find((u) => u.id === d.id);
-          return upd || d;
+          const upd = changed.find((u) => u.doc.id === d.id);
+          return upd ? upd.doc : d;
         }));
-        showToast(`התקבל מסמך חתום מהצד השני (${changed.length})`);
+        const completedCount = changed.filter((u) => u.completed).length;
+        if (completedCount) showToast(`התקבל מסמך חתום מהצד השני (${completedCount})`);
       }
     };
     refreshShared();
@@ -2081,9 +2310,16 @@ const App = () => {
     // Strip anything tying it to the original's share/sign lifecycle.
     delete clone.shareId;
     delete clone.shareToken;
+    delete clone.shareOwnerKey;
     delete clone.completedAt;
     delete clone.signedBy;
     delete clone.clientEmail;
+    delete clone.sentAt;
+    delete clone.expiresAt;
+    delete clone.audit;
+    if (Array.isArray(clone.signers)) {
+      clone.signers = clone.signers.map((s) => ({ ...s, status: "pending", signedAt: undefined }));
+    }
     setDocs((prev) => [clone, ...prev]);
     showToast("נוצר עותק חדש — שינויים בו לא ישפיעו על המקור");
   };
@@ -2123,7 +2359,7 @@ const App = () => {
   const onSavedSigsDrawNew = () => {
     requestSignature((dataUrl) => {
       const fresh = { id: "sig-" + genId(), name: "", dataUrl, createdAt: Date.now() };
-      saveSavedSignatures([fresh, ...loadSavedSignatures()]);
+      upsertSavedSignature(fresh);
       setSavedSigsRefreshKey((k) => k + 1);
       setHighlightSigId(fresh.id);
       showToast("חתימה חדשה נשמרה — תן/תני לה שם");
@@ -2149,8 +2385,15 @@ const App = () => {
     const unlocked = { ...activeDoc, status: "draft" };
     delete unlocked.shareId;
     delete unlocked.shareToken;
+    delete unlocked.shareOwnerKey;
     delete unlocked.completedAt;
     delete unlocked.signedBy;
+    delete unlocked.sentAt;
+    delete unlocked.expiresAt;
+    // A re-opened doc starts a fresh signing round.
+    if (Array.isArray(unlocked.signers)) {
+      unlocked.signers = unlocked.signers.map((s) => ({ ...s, status: "pending", signedAt: undefined }));
+    }
     updateDoc(unlocked);
     showToast("המסמך נפתח לעריכה");
   };
@@ -2290,9 +2533,17 @@ const App = () => {
     setShareOpen(true);
   };
 
-  const onShareReady = (shareId) => {
+  const onShareReady = (shareId, ownerKey) => {
     if (!activeDoc) return;
-    updateDoc({ ...activeDoc, shareId, status: activeDoc.status === "draft" ? "sent" : activeDoc.status });
+    updateDoc({
+      ...activeDoc,
+      shareId,
+      // The key that authorizes owner-side edits/resends of this share. Kept
+      // only in the admin library (stripped from anything the client sees).
+      shareOwnerKey: ownerKey || activeDoc.shareOwnerKey,
+      sentAt: activeDoc.sentAt || Date.now(),
+      status: activeDoc.status === "draft" ? "sent" : activeDoc.status,
+    });
   };
 
   const downloadDoc = async (d) => {
@@ -2462,11 +2713,13 @@ const App = () => {
     const lastPage = doc.uploadedPages ? doc.uploadedPages.length - 1 : 0;
     const ts = new Date();
     const human = ts.toLocaleString("he-IL", { dateStyle: "long", timeStyle: "short" });
+    // Stack multiple completion stamps (multi-signer) instead of overlapping.
+    const priorStamps = (doc.fields || []).filter((f) => f && f.assignee === "system" && String(f.id).startsWith("sysstamp-") && f.page === lastPage).length;
     return {
       id: "sysstamp-" + genId(),
       type: "text",
       page: lastPage,
-      x: 56, y: 1078, w: 682, h: 22,
+      x: 56, y: 1078 - priorStamps * 24, w: 682, h: 22,
       assignee: "system",
       value: `נחתם דיגיטלית ע״י ${signerName} · ${human} · FlowBiz Sign`,
     };
@@ -2474,7 +2727,11 @@ const App = () => {
 
   const onCounterpartyComplete = async () => {
     if (!activeDoc) return;
-    const signerName = DOC_TEMPLATES[activeDoc.template]?.counterparty || activeDoc.counterparty || "הצד השני";
+    const mySigner = signerId && Array.isArray(activeDoc.signers)
+      ? activeDoc.signers.find((s) => s && s.id === signerId)
+      : null;
+    const signerName = (mySigner && mySigner.name)
+      || DOC_TEMPLATES[activeDoc.template]?.counterparty || activeDoc.counterparty || "הצד השני";
     const stampField = buildCompletionStampField(activeDoc, signerName);
     const completed = {
       ...activeDoc,
@@ -2484,9 +2741,11 @@ const App = () => {
       signedBy: signerName,
     };
     updateDoc(completed);
-    // Push the signed copy back so the sender sees it in their library on next refresh
+    // Submit through the restricted sign endpoint — the server merges only
+    // this signer's field values + the completion stamp, stamps the audit
+    // trail, and decides whether the whole doc is now completed.
     if (sharedId) {
-      try { await apiUpdateShare(sharedId, completed); }
+      try { await apiSignShare(sharedId, completed, signerId); }
       catch (e) { console.error("failed to push signed copy", e); showToast("נשמר מקומית — נכשלה השליחה לשרת"); }
     }
     showToast("המסמך נחתם — מורד אליך עותק חתום");
@@ -2536,6 +2795,20 @@ const App = () => {
                   )}
                 </div>
                 <div className="brand-sub">{DOC_TEMPLATES[activeDoc.template]?.counterparty || activeDoc.counterparty}</div>
+                {Array.isArray(activeDoc.audit) && activeDoc.audit.length > 0 && (
+                  <div className="audit-line" title={activeDoc.audit.map((a) =>
+                    `${a.signedBy || "חותם"} · ${new Date(a.at).toLocaleString("he-IL")}${a.ip ? ` · IP ${a.ip}` : ""}${a.contentHash ? `\nהצפנת תוכן: ${a.contentHash.slice(0, 16)}…` : ""}`
+                  ).join("\n")}>
+                    <Icon name="shield-check" size={11} />
+                    {(() => {
+                      const last = activeDoc.audit[activeDoc.audit.length - 1];
+                      const when = new Date(last.at).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" });
+                      return activeDoc.audit.length === 1
+                        ? `נחתם ע״י ${last.signedBy || "הצד השני"} · ${when}${last.ip ? ` · IP ${last.ip}` : ""}`
+                        : `${activeDoc.audit.length} חתימות מתועדות · האחרונה ${when}`;
+                    })()}
+                  </div>
+                )}
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -2579,27 +2852,41 @@ const App = () => {
       {view === "counterparty" && !shareLoading && shareError &&
         <div className="cv-error-screen">
           <div className="cv-error-card">
-            <div className="cv-error-icon"><Icon name="info" size={36} color="#fff" /></div>
-            <h2>הקישור אינו תקין או פג תוקפו</h2>
-            <p>נראה שהקישור פגום, חלקי, או שהמסמך כבר אינו זמין. בקש/י קישור חדש מהשולח.</p>
+            <div className="cv-error-icon"><Icon name={shareErrorKind === "expired" ? "clock" : "info"} size={36} color="#fff" /></div>
+            <h2>{shareErrorKind === "expired" ? "תוקף הקישור פג" : "הקישור אינו תקין או פג תוקפו"}</h2>
+            <p>{shareErrorKind === "expired"
+              ? "הקישור לחתימה הוגבל בזמן על ידי השולח והתוקף שלו הסתיים. פנה/י לשולח לקבלת קישור חדש."
+              : "נראה שהקישור פגום, חלקי, או שהמסמך כבר אינו זמין. בקש/י קישור חדש מהשולח."}</p>
           </div>
         </div>
       }
 
       {view === "counterparty" && !shareLoading && !shareError && activeDoc &&
-      <>
+      (() => {
+        const cvSigners = Array.isArray(activeDoc.signers) ? activeDoc.signers.filter(Boolean) : [];
+        const mySigner = signerId ? cvSigners.find((s) => s.id === signerId) : null;
+        // Sequential order: an earlier signer that hasn't signed yet blocks this one.
+        const blocker = mySigner
+          ? cvSigners
+              .filter((s) => s.id !== mySigner.id && (Number(s.order) || 0) < (Number(mySigner.order) || 0) && s.status !== "signed")
+              .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0))[0]
+          : null;
+        return (
           <ClientView
             doc={activeDoc}
             onUpdate={updateDoc}
             mySignature={mySignature}
             onNeedSignature={(after, opts) => requestSignature(after, opts)}
+            signerName={mySigner ? mySigner.name : null}
+            blockedBy={blocker ? (blocker.name || "החותם הקודם") : null}
             onComplete={async () => {
               const completed = await onCounterpartyComplete();
               if (completed) downloadDoc(completed);
             }}
             downloadDoc={downloadDoc}
           />
-        </>
+        );
+      })()
       }
 
       <SignaturePad
@@ -2620,6 +2907,12 @@ const App = () => {
         onClose={() => setShareOpen(false)}
         doc={activeDoc}
         onShareReady={onShareReady}
+        onDocPatched={(patch) => {
+          if (!activeDoc) return;
+          const next = { ...activeDoc, ...patch };
+          Object.keys(patch).forEach((k) => { if (patch[k] === undefined) delete next[k]; });
+          updateDoc(next);
+        }}
         defaultClientEmail={(typeof localStorage !== "undefined" && localStorage.getItem("flowbiz-last-client-email")) || ""}
         onMarkSent={() => {
           showToast("הקישור נשלח — חוזרים לספריית המסמכים");
