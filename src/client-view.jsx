@@ -8,10 +8,13 @@ const { useState: useStateC, useEffect: useEffectC, useRef: useRefC, useMemo: us
 
 const CLIENT_STAMP_KEY = "flowbiz-client-stamp-v1";
 
-const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, downloadDoc }) => {
+const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, downloadDoc, signerName, blockedBy }) => {
   const template = window.DOC_TEMPLATES[doc.template];
   const senderName = doc.sender || "השולח";
-  const counterpartyName = template?.counterparty || doc.counterparty || "אורח/ת";
+  const counterpartyName = signerName || template?.counterparty || doc.counterparty || "אורח/ת";
+  // Multi-signer sequential flow: when an earlier signer hasn't signed yet,
+  // this link is view-only until their turn arrives.
+  const isBlocked = !!blockedBy;
 
   const stageRef = useRefC(null);
   const stampInputRef = useRefC(null);
@@ -144,7 +147,7 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
     const filled = !!field.value;
     const isSystem = field.assignee === "system";
     const mine = field.assignee === "them";
-    const interactive = mine && !filled && !isCompleted;
+    const interactive = mine && !filled && !isCompleted && !isBlocked;
     const stampSrc = field.type === "stamp" && typeof field.value === "string" && field.value.startsWith("data:")
       ? field.value
       : "assets/stamp.png";
@@ -226,7 +229,11 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
               <Icon name="send" size={13} /> נשלח אליך מאת <strong>{senderName}</strong>
             </div>
             <h1>{doc.name}</h1>
-            {!isCompleted ? (
+            {isBlocked && !isCompleted ? (
+              <p style={{ color: "var(--orange-600)" }}>
+                <Icon name="clock" size={14} /> שלום {counterpartyName}, המסמך נחתם לפי סדר — התור שלך יגיע אחרי החתימה של {blockedBy}. אפשר לעיין במסמך בינתיים; נעדכן אותך במייל כשיגיע תורך.
+              </p>
+            ) : !isCompleted ? (
               <p>שלום {counterpartyName}, עברו על המסמך. סמני/סמנו את השדות בכתום כדי להשלים את החתימה ולשלוח חזרה.</p>
             ) : (
               <p style={{ color: "var(--green-700)" }}>
@@ -249,9 +256,9 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
               )}
               <button
                 className="btn btn-success"
-                disabled={!allDone && !nothingToDo}
+                disabled={(!allDone && !nothingToDo) || isBlocked}
                 onClick={() => setShowSummary(true)}
-                title={!allDone && !nothingToDo ? "יש להשלים את כל השדות לפני שליחה" : ""}
+                title={isBlocked ? `ממתין לחתימה של ${blockedBy}` : !allDone && !nothingToDo ? "יש להשלים את כל השדות לפני שליחה" : ""}
               >
                 <Icon name="check" size={16} />
                 {nothingToDo ? "אישור וקבלת המסמך" : "סיום ושליחה חזרה"}

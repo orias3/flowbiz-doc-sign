@@ -5,30 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <base href="/"/>
   <title>דף חתימות · FlowBiz Sign</title>
-  <link rel="stylesheet" href="/styles.css"/>
   <link rel="icon" type="image/svg+xml" href="/assets/logo-mark.svg"/>
 </head>
 <body>
   <div id="root"></div>
-
-  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
-  <script>
-    if (window['pdfjsLib']) {
-      window['pdfjsLib'].GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    }
-  </script>
-
-  <script type="text/babel" src="/components.jsx"></script>
-  <script type="text/babel" src="/documents.jsx"></script>
-  <script type="text/babel" src="/signature-pad.jsx"></script>
-  <script type="text/babel" src="/editor.jsx"></script>
-  <script type="text/babel" src="/client-view.jsx"></script>
-  <script type="text/babel" src="/app.jsx"></script>
+  <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>
