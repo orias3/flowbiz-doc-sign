@@ -2621,16 +2621,27 @@ const App = () => {
           const AVOID_SEL = [
             ".qblk-milestone", ".qblk-callout", ".qblk-labeled", ".qblk-heading",
             ".quote-info-box", ".quote-price-box", ".quote-refund", ".quote-signoff",
+            // Whole framed boxes first — when a container (like the accounting
+            // table) fits on a page, the break must move above ALL of it, not
+            // just between its rows: a box split across pages loses its border
+            // and reads as a rendering glitch. Rows stay listed as a fallback
+            // for boxes taller than a page.
+            ".quote-acct", ".quote-contact", ".quote-features", ".quote-cards",
             ".quote-acct-row", ".quote-card", ".quote-checkmarks",
             ".sc-section", ".sc-qa", ".sc-rating-row", ".sc-offers", ".sc-check",
             ".bt-summary-row", ".bt-signatory", ".bt-decision",
             "tr", "h1", "h2", "li",
           ].join(",");
+          // Headings must not be orphaned at the bottom of a page: extend their
+          // protected range downward so the cut can't fall right after them and
+          // strand a title away from its content.
+          const HEADING_SEL = "h1,h2,.quote-h2,.qblk-heading,.qblk-subheading";
           const avoid = [];
           clone.querySelectorAll(AVOID_SEL).forEach((el) => {
             const r = el.getBoundingClientRect();
             const top = r.top - cloneTop;
-            const bottom = r.bottom - cloneTop;
+            const isHeading = el.matches(HEADING_SEL);
+            const bottom = r.bottom - cloneTop + (isHeading ? 110 : 0);
             const h = bottom - top;
             // Only keep blocks that could fit within a single page; a block
             // taller than a page must be split (nothing we can do), and its
