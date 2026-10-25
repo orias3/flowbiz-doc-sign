@@ -37,6 +37,10 @@ const Icon = ({ name, size = 18, color = "currentColor", strokeWidth = 2 }) => {
     "zoom-in": <><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></>,
     "zoom-out": <><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></>,
     "maximize": <><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></>,
+    "bar-chart": <><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/><line x1="3" y1="20" x2="21" y2="20"/></>,
+    "archive": <><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5" rx="1"/><line x1="10" y1="12" x2="14" y2="12"/></>,
+    "star": <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
+    "upload": <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>,
     "info": <><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></>,
   };
   return <svg {...common}>{paths[name] || null}</svg>;
@@ -47,6 +51,17 @@ const Icon = ({ name, size = 18, color = "currentColor", strokeWidth = 2 }) => {
 // the user must use the X button (or an explicit action). Used for edit forms
 // so a stray click on the side doesn't discard unsaved input.
 const Modal = ({ open, onClose, title, subtitle, children, wide, footer, noScrimClose }) => {
+  // Esc closes non-form modals. Edit forms (noScrimClose) ignore it, same as
+  // the backdrop, so a stray key never discards unsaved input.
+  React.useEffect(() => {
+    if (!open || noScrimClose || !onClose) return;
+    const onKey = (e) => {
+      if (e.key !== "Escape" || document.querySelector(".ui-dialog-scrim")) return;
+      onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, noScrimClose, onClose]);
   if (!open) return null;
   return (
     <div className="modal-scrim" onClick={(e) => {
@@ -76,6 +91,82 @@ const Toast = ({ message, action, onAction }) => {
   );
 };
 
+// Styled replacements for window.confirm / prompt / alert. Promise-based and
+// usable from anywhere (app, editor, client view): the host mounts itself
+// into its own root on first use.
+//   await uiConfirm({ title, message, confirmLabel, danger })  -> boolean
+//   await uiPrompt({ title, label, defaultValue, placeholder }) -> string | null
+//   await uiAlert({ title, message })                            -> void
+let dialogPush = null;
+const dialogQueue = [];
+function DialogHost() {
+  const [items, setItems] = React.useState([]);
+  React.useEffect(() => {
+    dialogPush = (item) => setItems((xs) => [...xs, item]);
+    dialogQueue.splice(0).forEach((it) => dialogPush(it));
+    return () => { dialogPush = null; };
+  }, []);
+  const current = items[0];
+  const [value, setValue] = React.useState("");
+  const inputRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!current) return;
+    setValue(current.kind === "prompt" ? (current.defaultValue || "") : "");
+    const t = setTimeout(() => {
+      if (inputRef.current) { inputRef.current.focus(); inputRef.current.select(); }
+      else { const b = document.querySelector(".ui-dialog .btn-primary, .ui-dialog .btn-danger"); if (b) b.focus(); }
+    }, 30);
+    return () => clearTimeout(t);
+  }, [current]);
+  if (!current) return null;
+  const close = (result) => { current.resolve(result); setItems((xs) => xs.slice(1)); };
+  const cancelResult = current.kind === "confirm" ? false : current.kind === "prompt" ? null : undefined;
+  const ok = () => close(current.kind === "confirm" ? true : current.kind === "prompt" ? value : undefined);
+  const onKey = (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(cancelResult); }
+    else if (e.key === "Enter" && !(current.multiline && e.target.tagName === "TEXTAREA" && !e.ctrlKey)) { e.preventDefault(); ok(); }
+  };
+  const confirmLabel = current.confirmLabel || (current.kind === "alert" ? "הבנתי" : current.kind === "prompt" ? "שמירה" : "אישור");
+  return (
+    <div className="modal-scrim ui-dialog-scrim" onKeyDown={onKey} onClick={(e) => { if (e.target === e.currentTarget) close(cancelResult); }}>
+      <div className="modal ui-dialog" role="dialog" aria-modal="true" style={{ position: "relative" }}>
+        {current.title && <h2>{current.title}</h2>}
+        {current.message && <p className="modal-sub" style={{ whiteSpace: "pre-line" }}>{current.message}</p>}
+        {current.kind === "prompt" && (
+          <label className="qfield">
+            {current.label && <span>{current.label}</span>}
+            {current.multiline
+              ? <textarea ref={inputRef} rows={3} value={value} placeholder={current.placeholder || ""} onChange={(e) => setValue(e.target.value)} />
+              : <input ref={inputRef} value={value} placeholder={current.placeholder || ""} onChange={(e) => setValue(e.target.value)} />}
+          </label>
+        )}
+        <div className="modal-actions">
+          <button className={"btn " + (current.danger ? "btn-danger" : "btn-primary")} onClick={ok}>{confirmLabel}</button>
+          {current.kind !== "alert" && (
+            <button className="btn btn-secondary" onClick={() => close(cancelResult)}>{current.cancelLabel || "ביטול"}</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+function openDialog(item) {
+  return new Promise((resolve) => {
+    const full = { ...item, resolve };
+    if (!document.getElementById("ui-dialog-root")) {
+      const el = document.createElement("div");
+      el.id = "ui-dialog-root";
+      document.body.appendChild(el);
+      ReactDOM.createRoot(el).render(<DialogHost />);
+    }
+    if (dialogPush) dialogPush(full); else dialogQueue.push(full);
+  });
+}
+const asOpts = (o) => (typeof o === "string" ? { message: o } : (o || {}));
+function uiConfirm(o) { return openDialog({ kind: "confirm", ...asOpts(o) }); }
+function uiPrompt(o) { return openDialog({ kind: "prompt", ...asOpts(o) }); }
+function uiAlert(o) { return openDialog({ kind: "alert", ...asOpts(o) }); }
+
 // Heebo-friendly Hebrew date
 function formatDate(d = new Date()) {
   const months = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
@@ -84,4 +175,4 @@ function formatDate(d = new Date()) {
 
 function genId() { return Math.random().toString(36).slice(2, 10); }
 
-Object.assign(window, { Icon, Modal, Toast, formatDate, genId });
+Object.assign(window, { Icon, Modal, Toast, formatDate, genId, uiConfirm, uiPrompt, uiAlert });
