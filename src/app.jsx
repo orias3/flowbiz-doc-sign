@@ -146,6 +146,35 @@ function nextResolutionNumber(existingDocs) {
   return `AOT-${year}-${max + 1}`;
 }
 
+// Quote numbers: YEAR-NNN, next after the highest number used this year.
+// Only new quotes get one; existing quotes keep rendering exactly as before.
+function nextQuoteNumber(existingDocs) {
+  const year = new Date().getFullYear();
+  let max = 0;
+  (existingDocs || []).forEach((d) => {
+    const n = d && d.template === "flowbiz_quote" && d.quoteData && d.quoteData.quoteNumber;
+    const m = n && String(n).match(/^(\d{4})-(\d+)$/);
+    if (m && m[1] === String(year)) max = Math.max(max, parseInt(m[2], 10) || 0);
+  });
+  return `${year}-${String(max + 1).padStart(3, "0")}`;
+}
+
+// "Signed since you last looked" — per browser. Only signatures that arrive
+// after this feature was first loaded count as new (no flood of old docs).
+const SEEN_KEY = "flowbiz-seen-completed-v1";
+function loadSeen() {
+  try { const v = JSON.parse(localStorage.getItem(SEEN_KEY)); if (v && v._since) return v; } catch {}
+  const fresh = { _since: Date.now() };
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify(fresh)); } catch {}
+  return fresh;
+}
+function saveSeen(v) { try { localStorage.setItem(SEEN_KEY, JSON.stringify(v)); } catch {} }
+function isNewlySigned(doc, seen) {
+  if (!doc || doc._deleted || !seen || statusOf(doc) !== "completed") return false;
+  const at = Number(doc.completedAt) || 0;
+  return at > seen._since && seen[doc.id] !== at;
+}
+
 function todayDateString() {
   const d = new Date();
   return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
@@ -284,7 +313,7 @@ function timeAgo(ts) {
   return new Date(ts).toLocaleDateString("he-IL");
 }
 
-const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer, onNewSalesCall, onOpenSavedSigs, onDelete, onDuplicate, adminEmail, onLogout }) => {
+const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer, onNewSalesCall, onOpenSavedSigs, onOpenStats, onOpenBackup, seen, onDelete, onDuplicate, adminEmail, onLogout }) => {
   const [drag, setDrag] = useStateA(false);
   const [query, setQuery] = useStateA("");
   const [typeFilter, setTypeFilter] = useStateA("all");
@@ -300,13 +329,15 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
     draft: liveDocs.filter((d) => statusOf(d) === "draft").length,
     sent: liveDocs.filter((d) => statusOf(d) === "sent").length,
     done: liveDocs.filter((d) => statusOf(d) === "completed").length,
-  }), [liveDocs]);
+    fresh: liveDocs.filter((d) => isNewlySigned(d, seen)).length,
+  }), [liveDocs, seen]);
 
   const filtered = useMemoA(() => {
     const q = query.trim().toLowerCase();
     let list = liveDocs.filter((d) => {
       if (typeFilter !== "all" && docTypeKey(d) !== typeFilter) return false;
-      if (statusFilter !== "all" && statusOf(d) !== statusFilter) return false;
+      if (statusFilter === "new") { if (!isNewlySigned(d, seen)) return false; }
+      else if (statusFilter !== "all" && statusOf(d) !== statusFilter) return false;
       if (q) {
         const hay = ((d.name || "") + " " + (d.counterparty || "") + " " + (DOC_TEMPLATES[d.template]?.counterparty || "")).toLowerCase();
         if (!hay.includes(q)) return false;
@@ -320,7 +351,7 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
       return upd(b) - upd(a); // 'updated' default
     });
     return list;
-  }, [liveDocs, query, typeFilter, statusFilter, sortBy]);
+  }, [liveDocs, query, typeFilter, statusFilter, sortBy, seen]);
 
   const typeChips = [
     { key: "all", label: "הכל" },
@@ -334,6 +365,7 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
     { key: "draft", label: "טיוטה" },
     { key: "sent", label: "ממתין" },
     { key: "completed", label: "הושלם" },
+    ...(counts.fresh ? [{ key: "new", label: `נחתמו לאחרונה (${counts.fresh})` }] : []),
   ];
 
   const handleFiles = (files) => {
@@ -355,6 +387,12 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button className="btn btn-secondary btn-sm" onClick={() => onOpenStats && onOpenStats()}>
+            <Icon name="bar-chart" size={14} /> נתונים
+          </button>
+          <button className="btn btn-secondary btn-sm" onClick={() => onOpenBackup && onOpenBackup()}>
+            <Icon name="archive" size={14} /> גיבוי
+          </button>
           <button className="btn btn-secondary btn-sm" onClick={() => onOpenSavedSigs && onOpenSavedSigs()}>
             <Icon name="pen-tool" size={14} /> החתימות שלי
           </button>
@@ -456,7 +494,7 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
             onClick={() => fileRef.current && fileRef.current.click()}>
 
             <div className="upload-tile-circle"><Icon name="upload-cloud" size={26} /></div>
-            <div className="upload-tile-title">גרור/י קובץ או לחץ/י להעלאה</div>
+            <div className="upload-tile-title">גוררים לכאן קובץ, או לוחצים להעלאה</div>
             <div className="upload-tile-sub">PDF, PNG, JPG · עד 20MB</div>
             <button className="btn btn-soft btn-sm" style={{ marginTop: 8 }}>
               <Icon name="file-plus" size={14} /> בחירת קובץ
@@ -473,8 +511,10 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
             const s = statusOf(doc);
             const template = DOC_TEMPLATES[doc.template];
             const tm = docTypeMeta(doc);
+            const fresh = isNewlySigned(doc, seen);
+            const qNum = doc.template === "flowbiz_quote" && doc.quoteData && doc.quoteData.quoteNumber;
             return (
-              <div key={doc.id} className="doc-card" onClick={() => onOpen(doc.id)}>
+              <div key={doc.id} className={"doc-card" + (fresh ? " is-new" : "")} onClick={() => onOpen(doc.id)}>
                 <div className="doc-card-actions">
                   <button className="doc-card-act" title="שכפול" onClick={(e) => { e.stopPropagation(); onDuplicate(doc.id); }}>
                     <Icon name="copy" size={14} />
@@ -497,12 +537,14 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
                   <p className="doc-title">{doc.name}</p>
                   <p className="doc-sub">
                     <Icon name="users" size={12} /> {doc.counterparty || template?.counterparty || "—"}
+                    {qNum && <span className="doc-num">מס׳ {qNum}</span>}
                   </p>
                 </div>
                 <div className="doc-foot">
                   {s === "draft" && <span className="pill pill-neutral">טיוטה</span>}
                   {s === "sent" && <span className="pill pill-warn"><Icon name="clock" size={11} /> ממתין</span>}
                   {s === "completed" && <span className="pill pill-ok"><Icon name="check" size={11} /> הושלם</span>}
+                  {fresh && <span className="pill pill-new">חדש</span>}
                   <span style={{ fontSize: 11.5, color: "var(--gray-500)" }} title={new Date(doc.updatedAt || doc.createdAt).toLocaleString("he-IL")}>
                     {timeAgo(doc.updatedAt || doc.createdAt)}
                   </span>
@@ -557,13 +599,14 @@ const CARD_ICONS = [
   { value: "file-text", label: "מסמך" },
 ];
 
-const QuoteFormModal = ({ open, onClose, onSubmit, initial }) => {
+const QuoteFormModal = ({ open, onClose, onSubmit, initial, suggestedQuoteNumber }) => {
   const today = new Date();
   const todayStr = `${String(today.getDate()).padStart(2, "0")}.${String(today.getMonth() + 1).padStart(2, "0")}.${today.getFullYear()}`;
 
   const seedData = () => {
     const base = window.normalizeQuoteData ? window.normalizeQuoteData(initial) : { ...(initial || {}) };
     if (!base.quoteDate) base.quoteDate = todayStr;
+    if (!initial && !base.quoteNumber) base.quoteNumber = suggestedQuoteNumber || "";
     return base;
   };
 
@@ -646,7 +689,7 @@ const QuoteFormModal = ({ open, onClose, onSubmit, initial }) => {
   return (
     <Modal open={open} onClose={onClose} wide noScrimClose
       title={initial ? "עריכת הצעה" : "הצעת מחיר חדשה"}
-      subtitle="כל שינוי ייקלט מיידית במסמך אחרי שמירה. אפשר להפעיל/לכבות סקשנים שלמים ולערוך כל פריט.">
+      subtitle="כל שינוי ייקלט מיידית במסמך אחרי שמירה. אפשר להציג או להסתיר חלקים שלמים ולערוך כל פריט.">
       <div className="qform">
 
         {sec("client", "פרטי לקוח", {}, (
@@ -662,6 +705,11 @@ const QuoteFormModal = ({ open, onClose, onSubmit, initial }) => {
             <label className="qfield">
               <span>תאריך הצעה</span>
               <input value={data.quoteDate} onChange={(e) => update({ quoteDate: e.target.value })} placeholder="DD.MM.YYYY" dir="ltr" />
+            </label>
+            <label className="qfield">
+              <span>מספר הצעה</span>
+              <input value={data.quoteNumber || ""} onChange={(e) => update({ quoteNumber: e.target.value })} placeholder="2026-001" dir="ltr" />
+              <small>מופיע בראש ההצעה ובכרטיס בספרייה. אפשר להשאיר ריק.</small>
             </label>
           </>
         ))}
@@ -786,7 +834,7 @@ const QuoteFormModal = ({ open, onClose, onSubmit, initial }) => {
         {sec("blocks", "בלוקים חופשיים (תוכן עשיר)", { toggleable: true, includedKey: "showBlocks", count: (data.blocks || []).length }, (
           <>
             <p className="qfield-hint">
-              <Icon name="info" size={12} /> כל בלוק וכל טקסט ניתנים לעריכה. השתמש/י בחיצים כדי לשנות סדר. ברירת המחדל מכילה את תוכנית ההאצה למייסדים — ערוך/מחק לפי הצורך.
+              <Icon name="info" size={12} /> כל בלוק וכל טקסט ניתנים לעריכה, והחיצים משנים את הסדר. ברירת המחדל היא תוכנית ההאצה למייסדים, ואפשר לערוך או למחוק לפי הצורך.
             </p>
             <label className="qfield">
               <span>כותרת המקטע (אופציונלי)</span>
@@ -955,6 +1003,7 @@ const QuoteFormModal = ({ open, onClose, onSubmit, initial }) => {
           clientName: data.clientName.trim(),
           businessName: (data.businessName || "").trim() || data.clientName.trim(),
           quoteDate: (data.quoteDate || "").trim() || todayStr,
+          quoteNumber: (data.quoteNumber || "").trim(),
         })}>
           <Icon name={initial ? "check" : "file-plus"} size={16} /> {initial ? "שמירה" : "יצירת הצעה"}
         </button>
@@ -982,7 +1031,7 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, onDocPatched
     setBusy(true); setErr("");
     apiCreateShare(sanitizeForCounterparty(doc))
       .then(({ id, ownerKey }) => { setShareId(id); onShareReady && onShareReady(id, ownerKey); })
-      .catch((e) => setErr("נכשלה יצירת קישור — נסה שוב"))
+      .catch((e) => setErr("יצירת הקישור נכשלה. אפשר לנסות שוב."))
       .finally(() => setBusy(false));
   }, [open, doc && doc.id]);
 
@@ -1032,11 +1081,11 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, onDocPatched
       });
       if (!ok) {
         if (status === 429) {
-          setEmailHint("נשלחו יותר מדי מיילים למסמך הזה בשעה האחרונה — נסו שוב מאוחר יותר.");
+          setEmailHint("נשלחו יותר מדי מיילים למסמך הזה בשעה האחרונה. אפשר לנסות שוב בעוד שעה.");
         } else if (status === 503) {
           // Email not configured server-side — fall back to mailto:
           window.open(`mailto:${encodeURIComponent(clientEmail.trim())}?subject=${encodeURIComponent("מסמך לחתימה: " + doc.name)}&body=${encodeURIComponent("שלום,\n\nמצורף קישור לחתימה על המסמך:\n" + url + "\n\nתודה!")}`);
-          setEmailHint("נפתח אצלך לקוח המייל — שלח/י ידנית. (לשליחה אוטומטית, נדרשת התקנת מפתח Resend בשרת)");
+          setEmailHint("נפתחה תוכנת המייל, ומשם שולחים ידנית. שליחה אוטומטית דורשת הגדרת מייל בשרת.");
         } else {
           setEmailHint(data.error || "שליחה נכשלה");
         }
@@ -1047,7 +1096,7 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, onDocPatched
         try { localStorage.setItem("flowbiz-last-client-email", clientEmail.trim()); } catch {}
       }
     } catch (e) {
-      setEmailHint("שליחה נכשלה — נסה שוב");
+      setEmailHint("השליחה נכשלה. אפשר לנסות שוב.");
     } finally {
       setEmailing(false);
     }
@@ -1068,7 +1117,7 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, onDocPatched
       {multiSigner && (
         <div className="share-signers">
           <div className="share-email-title" style={{ marginBottom: 10 }}>
-            <Icon name="users" size={14} color="var(--blue-600)" /> קישור אישי לכל חותם — לפי סדר החתימה
+            <Icon name="users" size={14} color="var(--blue-600)" /> קישור אישי לכל חותם, לפי סדר החתימה
           </div>
           {signers.map((s, i) => (
             <div key={s.id} className="share-signer-row">
@@ -1076,7 +1125,7 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, onDocPatched
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: "var(--gray-800)" }}>
                   {s.name || `חותם ${i + 1}`}
-                  {s.status === "signed" && <span className="pill pill-ok" style={{ marginInlineStart: 6 }}><Icon name="check" size={10} /> חתם/ה</span>}
+                  {s.status === "signed" && <span className="pill pill-ok" style={{ marginInlineStart: 6 }}><Icon name="check" size={10} /> נחתם</span>}
                 </div>
                 <div style={{ fontSize: 11.5, color: "var(--gray-500)", direction: "ltr", textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{signerUrl(s)}</div>
               </div>
@@ -1086,7 +1135,7 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, onDocPatched
               <button
                 className="btn btn-primary btn-sm"
                 disabled={!shareId || !s.email || signerEmailing[s.id] === "busy" || signerEmailing[s.id] === "sent"}
-                title={!s.email ? "לא הוגדר מייל לחותם — אפשר להוסיף בעורך" : ""}
+                title={!s.email ? "לא הוגדר מייל לחותם. אפשר להוסיף אותו בעורך." : ""}
                 onClick={() => inviteSigner(s)}
               >
                 <Icon name={signerEmailing[s.id] === "sent" ? "check" : "send"} size={13} />
@@ -1095,7 +1144,7 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, onDocPatched
             </div>
           ))}
           <div className="share-email-foot" style={{ marginTop: 8 }}>
-            החתימה מתבצעת לפי הסדר. כשחותם מסיים — הבא בתור מקבל מייל אוטומטית, ובסיום כולם מקבלים עותק חתום.
+            החתימה מתבצעת לפי הסדר. כשחותם מסיים, הבא בתור מקבל מייל אוטומטית, ובסוף כולם מקבלים עותק חתום.
           </div>
         </div>
       )}
@@ -1198,14 +1247,14 @@ const ShareModal = ({ open, onClose, doc, onMarkSent, onShareReady, onDocPatched
 
       <div className="modal-actions">
         <button className="btn btn-primary" onClick={() => { onMarkSent && onMarkSent(); onClose(); }}>
-          <Icon name="arrow-right" size={16} /> סיימתי — חזרה למסמכים
+          <Icon name="arrow-right" size={16} /> סיימתי, חזרה למסמכים
         </button>
       </div>
     </Modal>);
 
 };
 
-const SavedSignaturesModal = ({ open, onClose, refreshKey, onDrawNew, highlightId, onChanged }) => {
+const SavedSignaturesModal = ({ open, onClose, refreshKey, onDrawNew, highlightId, onChanged, adminEmail }) => {
   const [sigs, setSigs] = useStateA(() => loadSavedSignatures());
   const fileRef = React.useRef(null);
   const highlightInputRef = React.useRef(null);
@@ -1233,7 +1282,7 @@ const SavedSignaturesModal = ({ open, onClose, refreshKey, onDrawNew, highlightI
   const onUpload = (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
-    if (file.size > 4 * 1024 * 1024) { alert("גודל מקסימלי לחתימה: 4MB"); return; }
+    if (file.size > 4 * 1024 * 1024) { uiAlert({ title: "הקובץ גדול מדי", message: "גודל מקסימלי לחתימה: 4MB" }); return; }
     const reader = new FileReader();
     reader.onload = () => {
       const fname = (file.name || "חתימה").replace(/\.(png|jpg|jpeg|svg)$/i, "");
@@ -1253,8 +1302,24 @@ const SavedSignaturesModal = ({ open, onClose, refreshKey, onDrawNew, highlightI
     refresh();
     onChanged && onChanged();
   };
-  const deleteSig = (id) => {
-    if (!confirm("למחוק את החתימה השמורה?")) return;
+  // Mark one signature as the logged-in admin's own: it becomes their default
+  // for auto-filled "me" signature fields. One per admin.
+  const toggleMine = (id) => {
+    if (!adminEmail) return;
+    const me = adminEmail.toLowerCase();
+    const target = sigs.find((s) => s.id === id);
+    if (!target) return;
+    const isMine = String(target.ownerEmail || "").toLowerCase() === me;
+    sigs.forEach((s) => {
+      const owned = String(s.ownerEmail || "").toLowerCase() === me;
+      if (s.id === id) upsertSavedSignature({ ...s, ownerEmail: isMine ? "" : adminEmail });
+      else if (owned && !isMine) upsertSavedSignature({ ...s, ownerEmail: "" });
+    });
+    refresh();
+    onChanged && onChanged();
+  };
+  const deleteSig = async (id) => {
+    if (!(await uiConfirm({ title: "למחוק את החתימה השמורה?", message: "מסמכים שכבר נחתמו בה לא ישתנו.", confirmLabel: "מחיקה", danger: true }))) return;
     softDeleteSavedSignature(id);
     refresh();
     onChanged && onChanged();
@@ -1263,7 +1328,7 @@ const SavedSignaturesModal = ({ open, onClose, refreshKey, onDrawNew, highlightI
   return (
     <Modal open={open} onClose={onClose} wide
       title="החתימות השמורות שלי"
-      subtitle="העלה קבצי חתימה (PNG עם רקע שקוף הכי טוב), תן/תני לכל אחת שם — והמערכת תשבץ אותן אוטומטית במסמכים לפי שם המורשה (למשל בהחלטות העברה בנקאית).">
+      subtitle="מעלים קבצי חתימה (הכי טוב PNG עם רקע שקוף) ונותנים לכל אחת שם. המערכת משבצת אותן אוטומטית במסמכים לפי שם המורשה, למשל בהחלטות העברה בנקאית.">
 
       <input ref={fileRef} type="file" hidden accept="image/png,image/jpeg,image/svg+xml" onChange={onUpload} />
 
@@ -1286,7 +1351,7 @@ const SavedSignaturesModal = ({ open, onClose, refreshKey, onDrawNew, highlightI
           <div className="saved-sigs-empty-circle"><Icon name="pen-tool" size={28} color="#fff" /></div>
           <div style={{ fontSize: 14, fontWeight: 700, color: "var(--blue-900)", marginTop: 10 }}>אין חתימות שמורות עדיין</div>
           <div style={{ fontSize: 12.5, color: "var(--gray-500)", marginTop: 4, textAlign: "center", maxWidth: 360 }}>
-            העלה תמונה של חתימה ותן לה את השם של המורשה (לדוגמה "אורי אשר"). פעם הבאה שתיצור החלטה עם המורשה הזה — החתימה תופיע אוטומטית.
+            מעלים תמונה של חתימה ונותנים לה את השם של המורשה (לדוגמה "אורי אשר"). בהחלטה הבאה עם המורשה הזה, החתימה תופיע אוטומטית.
           </div>
         </div>
       ) : (
@@ -1303,6 +1368,17 @@ const SavedSignaturesModal = ({ open, onClose, refreshKey, onDrawNew, highlightI
                   onChange={(e) => updateName(s.id, e.target.value)}
                   placeholder="שם המורשה (לדוגמה: אורי אשר)"
                 />
+                {(() => {
+                  const owner = String(s.ownerEmail || "").toLowerCase();
+                  const mine = !!adminEmail && owner === adminEmail.toLowerCase();
+                  if (owner && !mine) return <span className="sig-owner" title={s.ownerEmail}>של {s.ownerEmail.split("@")[0]}</span>;
+                  return adminEmail ? (
+                    <button className={"sig-mine-btn" + (mine ? " on" : "")} onClick={() => toggleMine(s.id)}
+                      title={mine ? "החתימה שלך: נכנסת אוטומטית לשדות החתימה שלך" : "לסמן כחתימה שלי"}>
+                      <Icon name="star" size={13} /> {mine ? "החתימה שלי" : "שלי?"}
+                    </button>
+                  ) : null;
+                })()}
                 <button className="qicon-btn danger" onClick={() => deleteSig(s.id)} title="מחיקה"><Icon name="trash" size={13} /></button>
               </div>
             );
@@ -1372,7 +1448,7 @@ const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedReso
 
   const saveAsNewVendor = () => {
     const name = (data.beneficiaryName || "").trim();
-    if (!name) { alert("יש למלא שם מוטב לפני שמירה כספק"); return; }
+    if (!name) { uiAlert({ title: "חסר שם מוטב", message: "צריך למלא שם מוטב לפני שמירה כספק." }); return; }
     const v = {
       id: "v-" + genId(),
       name,
@@ -1402,9 +1478,9 @@ const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedReso
     afterVendorChange();
   };
 
-  const deleteSelectedVendor = () => {
+  const deleteSelectedVendor = async () => {
     if (!selectedVendorId) return;
-    if (!confirm("למחוק את הספק השמור?")) return;
+    if (!(await uiConfirm({ title: "למחוק את הספק השמור?", message: "מסמכים קיימים לא ישתנו.", confirmLabel: "מחיקה", danger: true }))) return;
     softDeleteVendor(selectedVendorId);
     afterVendorChange();
     setSelectedVendorId("");
@@ -1437,7 +1513,7 @@ const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedReso
   return (
     <Modal open={open} onClose={onClose} wide noScrimClose
       title={initial ? "עריכת החלטת העברה" : "החלטת העברה בנקאית חדשה"}
-      subtitle="מלא/י את פרטי ההעברה. אפשר לבחור ספק שמור כדי לטעון את פרטי החשבון בלחיצה אחת.">
+      subtitle="ממלאים את פרטי ההעברה. ספק שמור טוען את פרטי החשבון בלחיצה אחת.">
       <div className="qform">
 
         {sec("decision", "פרטי החלטה", {}, (
@@ -1514,7 +1590,7 @@ const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedReso
           <>
             <div className="bt-vendor-pick">
               <select value={selectedVendorId} onChange={(e) => pickVendor(e.target.value)}>
-                <option value="">— ספק חדש —</option>
+                <option value="">ספק חדש</option>
                 {vendors.map((v) => (
                   <option key={v.id} value={v.id}>{v.name}{v.account ? ` · ${v.account}` : ""}</option>
                 ))}
@@ -1585,7 +1661,7 @@ const BankTransferFormModal = ({ open, onClose, onSubmit, initial, suggestedReso
           <p className="bt-vendor-hint">טבלת הסיכום מציגה את הפרטים בצורה מסודרת אחרי טקסט ההחלטה. ניתן להסתיר אם הטקסט בעצמו מספיק.</p>
         ))}
 
-        {sec("disclaimer", "טקסט תקנון/הערות", { toggleable: true, includedKey: "showDisclaimer" }, (
+        {sec("disclaimer", "טקסט תקנון והערות", { toggleable: true, includedKey: "showDisclaimer" }, (
           <label className="qfield">
             <span>הערות בתחתית המסמך</span>
             <textarea rows={5} value={data.disclaimerText} onChange={(e) => update({ disclaimerText: e.target.value })} />
@@ -1663,7 +1739,7 @@ const SalesCallFormModal = ({ open, onClose, onSubmit, initial }) => {
   return (
     <Modal open={open} onClose={onClose} wide noScrimClose
       title={initial ? "עריכת סיכום שיחה" : "סיכום שיחת מכירה חדש"}
-      subtitle="מלא/י את השדות הרלוונטיים — הכל בזרימה אחת. ניתן לחזור ולערוך מאוחר יותר.">
+      subtitle="ממלאים את השדות הרלוונטיים בזרימה אחת. אפשר לחזור ולערוך אחר כך.">
       <div className="qform sc-form-flow">
 
         <ScSection title="פרטי לקוח ופגישה">
@@ -1706,7 +1782,7 @@ const SalesCallFormModal = ({ open, onClose, onSubmit, initial }) => {
           </label>
           <label className="qfield">
             <span>מ-1 עד 10, כמה את/ה רוצה להקים את העסק?</span>
-            <input value={data.demoQ2_rating} onChange={(e) => update({ demoQ2_rating: e.target.value })} dir="ltr" placeholder="1—10" />
+            <input value={data.demoQ2_rating} onChange={(e) => update({ demoQ2_rating: e.target.value })} dir="ltr" placeholder="1-10" />
           </label>
         </ScSection>
 
@@ -1719,7 +1795,7 @@ const SalesCallFormModal = ({ open, onClose, onSubmit, initial }) => {
               <ScCheckRow key={o.key} {...cbk(o.key)} label={o.label} />
             ))}
           </div>
-          <ScCheckRow {...cbk("letClientReact")} label='לאחר ההצגה — לתת ללקוח להגיב ראשון' />
+          <ScCheckRow {...cbk("letClientReact")} label='אחרי ההצגה, לתת ללקוח להגיב ראשון' />
         </ScSection>
 
         <ScSection title="תוצאה">
@@ -1795,10 +1871,10 @@ const LoginModal = ({ open, onLogin }) => {
     try {
       const r = await fetch("/api/admin/state", { headers: { "Authorization": basicAuth }, cache: "no-store" });
       if (r.status === 401) { setErr("אימייל או סיסמה שגויים"); return; }
-      if (!r.ok) { setErr("שגיאת שרת — נסה/י שוב בעוד רגע"); return; }
+      if (!r.ok) { setErr("שגיאת שרת. אפשר לנסות שוב בעוד רגע."); return; }
       onLogin({ email: e, basicAuth, loggedInAt: Date.now() });
     } catch (ex) {
-      setErr("שגיאת תקשורת — נסה/י שוב");
+      setErr("שגיאת תקשורת. אפשר לנסות שוב.");
     } finally {
       setBusy(false);
     }
@@ -1809,7 +1885,7 @@ const LoginModal = ({ open, onLogin }) => {
       <div className="login-card">
         <img src="/assets/logo.png" alt="FlowBiz" className="login-logo" onError={(e) => (e.target.style.display = "none")} />
         <h2>FlowBiz Sign · ניהול</h2>
-        <p>גישה מנהלית בלבד. כניסה תיתן לך גישה לכל המסמכים, החתימות והספקים — מסונכרן בין כל המנהלים.</p>
+        <p>גישה למנהלים בלבד. אחרי הכניסה רואים את כל המסמכים, החתימות והספקים, מסונכרנים בין כל המנהלים.</p>
         <label className="login-field">
           <span>אימייל</span>
           <input type="email" dir="ltr" autoComplete="email" value={email} onChange={(ev) => setEmail(ev.target.value)} placeholder="orias3@gmail.com" autoFocus />
@@ -1847,6 +1923,10 @@ const App = () => {
   const [scFormEditingId, setScFormEditingId] = useStateA(null);
   const [savedSigsOpen, setSavedSigsOpen] = useStateA(false);
   const [savedSigsRefreshKey, setSavedSigsRefreshKey] = useStateA(0);
+  const [sigsLocalBump, setSigsLocalBump] = useStateA(0); // local edits in the saved-signatures modal
+  const [statsOpen, setStatsOpen] = useStateA(false);
+  const [backupOpen, setBackupOpen] = useStateA(false);
+  const [seen, setSeen] = useStateA(() => loadSeen());
   const [highlightSigId, setHighlightSigId] = useStateA(null);
   const [sigDefaultMode, setSigDefaultMode] = useStateA("auto");
   const [sigUpdateMain, setSigUpdateMain] = useStateA(true);
@@ -1867,6 +1947,15 @@ const App = () => {
 
   useEffectA(() => {saveDocs(docs);}, [docs]);
   useEffectA(() => {if (mySignature) saveSig(mySignature);}, [mySignature]);
+
+  // The logged-in admin's own signature (marked in the saved-signatures modal)
+  // becomes the default for their auto-filled signature fields.
+  useEffectA(() => {
+    const email = adminAuth && adminAuth.email;
+    if (!email) return;
+    const mine = loadSavedSignatures().find((s) => String(s.ownerEmail || "").toLowerCase() === email.toLowerCase());
+    if (mine && mine.dataUrl && mine.dataUrl !== mySignature) setMySignature(mine.dataUrl);
+  }, [adminAuth, savedSigsRefreshKey, sigsLocalBump]);
 
   // ── Refs for the admin sync state machine ───────────────────────────────
   const docsRef = React.useRef(docs);
@@ -2055,9 +2144,9 @@ const App = () => {
     if (!adminAuth) return;
     if (isApplyingRemoteRef.current) return;
     // Skip the very first mount fire (counters start at 0)
-    if (savedSigsRefreshKey === 0 && vendorBump === 0) return;
+    if (savedSigsRefreshKey === 0 && vendorBump === 0 && sigsLocalBump === 0) return;
     if (doPushRef.current) doPushRef.current();
-  }, [savedSigsRefreshKey, vendorBump, adminAuth]);
+  }, [savedSigsRefreshKey, vendorBump, sigsLocalBump, adminAuth]);
 
   // URL routing — /s/<id> path is hard-locked to the client signing view.
   useEffectA(() => {
@@ -2202,8 +2291,35 @@ const App = () => {
   };
 
   const openDoc = (id) => {
+    const d = docs.find((x) => x.id === id);
+    if (d && isNewlySigned(d, seen)) {
+      const next = { ...seen, [id]: Number(d.completedAt) };
+      setSeen(next); saveSeen(next);
+    }
     setActiveDocId(id);
     setView("editor");
+  };
+
+  // Backup: full lists incl. deletion tombstones, so an export restores exactly.
+  const getBackupState = () => ({ docs: docsRef.current, vendors: loadVendorsAll(), savedSignatures: loadSavedSignaturesAll() });
+  const applyBackupMerge = ({ docs: mergedDocs, vendors, savedSignatures }) => {
+    saveVendorsAll(vendors);
+    saveSavedSignaturesAll(savedSignatures);
+    setDocs(mergedDocs);
+    setVendorBump((v) => v + 1);
+    setSigsLocalBump((b) => b + 1);
+  };
+
+  // Ask before creating a second doc with the exact same name.
+  const confirmDuplicateName = async (name) => {
+    const existing = docs.find((d) => d && !d._deleted && d.name === name);
+    if (!existing) return true;
+    return uiConfirm({
+      title: "כבר יש מסמך בשם הזה",
+      message: `"${name}" כבר קיים בספרייה. ליצור מסמך נוסף באותו שם?`,
+      confirmLabel: "ליצור בכל זאת",
+      cancelLabel: "חזרה לטופס",
+    });
   };
 
   const newDocFromUpload = (file) => {
@@ -2227,7 +2343,7 @@ const App = () => {
       setDocs((prev) => [newDoc, ...prev]);
       setActiveDocId(id);
       setView("editor");
-      showToast("המסמך הועלה — הוסף שדות חתימה");
+      showToast("המסמך הועלה. עכשיו מוסיפים שדות חתימה.");
     };
 
     if (isImage) {
@@ -2321,7 +2437,7 @@ const App = () => {
       clone.signers = clone.signers.map((s) => ({ ...s, status: "pending", signedAt: undefined }));
     }
     setDocs((prev) => [clone, ...prev]);
-    showToast("נוצר עותק חדש — שינויים בו לא ישפיעו על המקור");
+    showToast("נוצר עותק חדש. שינויים בו לא משפיעים על המקור.");
   };
 
   const newBlankDoc = () => {
@@ -2362,7 +2478,7 @@ const App = () => {
       upsertSavedSignature(fresh);
       setSavedSigsRefreshKey((k) => k + 1);
       setHighlightSigId(fresh.id);
-      showToast("חתימה חדשה נשמרה — תן/תני לה שם");
+      showToast("החתימה נשמרה. כדאי לתת לה שם.");
     }, { defaultMode: "draw", updateMain: false });
   };
 
@@ -2376,12 +2492,12 @@ const App = () => {
   // Re-open a locked doc for editing. Clears the share id (so future shares
   // generate a new link) and resets status back to draft. Existing share URLs
   // sent to clients keep working but no longer reflect new edits.
-  const onUnlockDoc = () => {
+  const onUnlockDoc = async () => {
     if (!activeDoc) return;
     const msg = activeDoc.status === "completed"
       ? "המסמך נחתם והושלם. לפתוח לעריכה מחדש? קישור קיים שנשלח לצד השני לא יתעדכן עם השינויים החדשים."
       : "המסמך נשלח וננעל. לפתוח לעריכה מחדש? קישור קיים שנשלח לצד השני לא יתעדכן עם השינויים החדשים. ייווצר קישור חדש בלחיצה הבאה על שליחה.";
-    if (!confirm(msg)) return;
+    if (!(await uiConfirm({ title: "לפתוח את המסמך לעריכה?", message: msg, confirmLabel: "פתיחה לעריכה" }))) return;
     const unlocked = { ...activeDoc, status: "draft" };
     delete unlocked.shareId;
     delete unlocked.shareToken;
@@ -2398,7 +2514,7 @@ const App = () => {
     showToast("המסמך נפתח לעריכה");
   };
 
-  const onSalesCallFormSubmit = (data) => {
+  const onSalesCallFormSubmit = async (data) => {
     if (scFormEditingId) {
       const target = docs.find((d) => d.id === scFormEditingId);
       if (target) {
@@ -2412,6 +2528,7 @@ const App = () => {
         showToast("הסיכום עודכן");
       }
     } else {
+      if (!(await confirmDuplicateName(`סיכום שיחה · ${data.clientName || "לקוח"}`))) return;
       const id = "doc-" + genId();
       const newDoc = {
         id,
@@ -2433,7 +2550,7 @@ const App = () => {
     setScFormEditingId(null);
   };
 
-  const onBankTransferFormSubmit = (data) => {
+  const onBankTransferFormSubmit = async (data) => {
     if (btFormEditingId) {
       const target = docs.find((d) => d.id === btFormEditingId) || (sharedDoc && sharedDoc.id === btFormEditingId ? sharedDoc : null);
       if (target) {
@@ -2447,6 +2564,7 @@ const App = () => {
         showToast("פרטי ההחלטה עודכנו");
       }
     } else {
+      if (!(await confirmDuplicateName(`העברה · ${data.beneficiaryName || data.resolutionNumber || "מוטב"}`))) return;
       const id = "doc-" + genId();
       // Try to auto-fill each signatory's signature from the saved-signatures library by matching name
       const sig1Match = findSavedSignatureByName(data.signatories && data.signatories[0] && data.signatories[0].name);
@@ -2471,13 +2589,13 @@ const App = () => {
       setDocs((prev) => [newDoc, ...prev]);
       setActiveDocId(id);
       setView("editor");
-      showToast("ההחלטה נוצרה — שדות חתימה הוצבו אוטומטית");
+      showToast("ההחלטה נוצרה, ושדות החתימה כבר במקום.");
     }
     setBtFormOpen(false);
     setBtFormEditingId(null);
   };
 
-  const onQuoteFormSubmit = (quoteData) => {
+  const onQuoteFormSubmit = async (quoteData) => {
     if (quoteFormEditingId) {
       // Edit existing quote
       const target = docs.find((d) => d.id === quoteFormEditingId) || (sharedDoc && sharedDoc.id === quoteFormEditingId ? sharedDoc : null);
@@ -2487,6 +2605,7 @@ const App = () => {
         showToast("פרטי ההצעה עודכנו");
       }
     } else {
+      if (!(await confirmDuplicateName(`הצעת מחיר · ${quoteData.clientName}`))) return;
       // Create new quote with pre-placed signature fields on page 2
       const id = "doc-" + genId();
       const fields = [
@@ -2510,7 +2629,7 @@ const App = () => {
       setDocs((prev) => [newDoc, ...prev]);
       setActiveDocId(id);
       setView("editor");
-      showToast("הצעת המחיר נוצרה — שדות חתימה הוצבו אוטומטית");
+      showToast("הצעת המחיר נוצרה, ושדות החתימה כבר במקום.");
     }
     setQuoteFormOpen(false);
     setQuoteFormEditingId(null);
@@ -2551,7 +2670,7 @@ const App = () => {
     showToast("מכין הורדה...");
     const PW = 794, PH = 1123;
     if (typeof window.html2canvas !== "function") {
-      showToast("שגיאה — html2canvas לא נטען");
+      showToast("ההורדה נכשלה: רכיב ה-PDF לא נטען. כדאי לרענן את הדף.");
       return;
     }
     try {
@@ -2757,9 +2876,9 @@ const App = () => {
     // trail, and decides whether the whole doc is now completed.
     if (sharedId) {
       try { await apiSignShare(sharedId, completed, signerId); }
-      catch (e) { console.error("failed to push signed copy", e); showToast("נשמר מקומית — נכשלה השליחה לשרת"); }
+      catch (e) { console.error("failed to push signed copy", e); showToast("נשמר במכשיר, אבל השליחה לשרת נכשלה."); }
     }
-    showToast("המסמך נחתם — מורד אליך עותק חתום");
+    showToast("המסמך נחתם. עותק חתום יורד אליך.");
     return completed;
   };
 
@@ -2781,6 +2900,9 @@ const App = () => {
         onNewBankTransfer={openNewBankTransfer}
         onNewSalesCall={openNewSalesCall}
         onOpenSavedSigs={() => setSavedSigsOpen(true)}
+        onOpenStats={() => setStatsOpen(true)}
+        onOpenBackup={() => setBackupOpen(true)}
+        seen={seen}
         onDelete={deleteDoc}
         adminEmail={adminAuth && adminAuth.email}
         onLogout={() => { clearAdminAuth(); setAdminAuth(null); }}
@@ -2801,7 +2923,7 @@ const App = () => {
                   {ownerLocked && (
                     <span className="pill pill-ok" style={{ marginInlineStart: 8 }}>
                       <Icon name={activeDoc.status === "completed" ? "check-circle" : "shield-check"} size={11} />
-                      {activeDoc.status === "completed" ? "חתום ונעול" : "נשלח — נעול"}
+                      {activeDoc.status === "completed" ? "חתום ונעול" : "נשלח ונעול"}
                     </span>
                   )}
                 </div>
@@ -2866,8 +2988,8 @@ const App = () => {
             <div className="cv-error-icon"><Icon name={shareErrorKind === "expired" ? "clock" : "info"} size={36} color="#fff" /></div>
             <h2>{shareErrorKind === "expired" ? "תוקף הקישור פג" : "הקישור אינו תקין או פג תוקפו"}</h2>
             <p>{shareErrorKind === "expired"
-              ? "הקישור לחתימה הוגבל בזמן על ידי השולח והתוקף שלו הסתיים. פנה/י לשולח לקבלת קישור חדש."
-              : "נראה שהקישור פגום, חלקי, או שהמסמך כבר אינו זמין. בקש/י קישור חדש מהשולח."}</p>
+              ? "הקישור לחתימה הוגבל בזמן על ידי השולח, והתוקף שלו הסתיים. השולח יכול לשלוח קישור חדש."
+              : "נראה שהקישור פגום או חלקי, או שהמסמך כבר לא זמין. השולח יכול לשלוח קישור חדש."}</p>
           </div>
         </div>
       }
@@ -2926,7 +3048,7 @@ const App = () => {
         }}
         defaultClientEmail={(typeof localStorage !== "undefined" && localStorage.getItem("flowbiz-last-client-email")) || ""}
         onMarkSent={() => {
-          showToast("הקישור נשלח — חוזרים לספריית המסמכים");
+          showToast("הקישור נשלח. חוזרים לספריית המסמכים.");
           setShareOpen(false);
           setView("library");
           setActiveDocId(null);
@@ -2941,6 +3063,7 @@ const App = () => {
         onClose={() => { setQuoteFormOpen(false); setQuoteFormEditingId(null); }}
         onSubmit={onQuoteFormSubmit}
         initial={quoteFormEditingId ? (docs.find((d) => d.id === quoteFormEditingId)?.quoteData || null) : null}
+        suggestedQuoteNumber={nextQuoteNumber(docs)}
       />
 
       <BankTransferFormModal
@@ -2966,7 +3089,14 @@ const App = () => {
         refreshKey={savedSigsRefreshKey}
         onDrawNew={onSavedSigsDrawNew}
         highlightId={highlightSigId}
+        onChanged={() => setSigsLocalBump((b) => b + 1)}
+        adminEmail={adminAuth && adminAuth.email}
       />
+
+      <StatsModal open={statsOpen} onClose={() => setStatsOpen(false)} docs={docs} statusOf={statusOf} onOpenDoc={openDoc} />
+      <BackupModal open={backupOpen} onClose={() => setBackupOpen(false)}
+        getState={getBackupState} applyMerged={applyBackupMerge}
+        adminEmail={adminAuth && adminAuth.email} showToast={showToast} />
 
       <Toast message={toast} action={toastAction} onAction={() => {
         const fn = toastAction && toastAction.fn;
@@ -2978,10 +3108,10 @@ const App = () => {
       {adminAuth && syncState !== "idle" && view !== "counterparty" && (
         <div className={"sync-indicator " + syncState}
           onClick={() => { if (syncState === "error" && doPushRef.current) doPushRef.current(); }}
-          title={syncState === "error" ? "לחץ לניסיון חוזר" : ""}>
+          title={syncState === "error" ? "לחיצה לניסיון חוזר" : ""}>
           {syncState === "saving" && <><span className="sync-dot spin" /> מסנכרן…</>}
           {syncState === "saved" && <><Icon name="check" size={13} /> נשמר בענן</>}
-          {syncState === "error" && <><Icon name="info" size={13} /> שגיאת שמירה · נסה שוב</>}
+          {syncState === "error" && <><Icon name="info" size={13} /> שגיאת שמירה · לנסות שוב</>}
         </div>
       )}
     </>);

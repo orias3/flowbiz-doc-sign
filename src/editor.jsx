@@ -37,6 +37,9 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
   const theirSigned = theirFields.filter(f => f.value).length;
 
   const updateDoc = (next) => onUpdate({ ...doc, ...next });
+  // Latest doc for updates that resolve after an async dialog.
+  const latestDocRef = useRefE(doc);
+  latestDocRef.current = doc;
 
   const addSigner = () => {
     if (signers.length >= 5) return;
@@ -176,8 +179,11 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
     } else if (field.type === "date") {
       updateDoc({ fields: doc.fields.map(f => f.id === field.id ? { ...f, value: formatDate() } : f) });
     } else if (field.type === "text") {
-      const v = prompt("הקלד/י טקסט:", field.value || "");
-      if (v != null) updateDoc({ fields: doc.fields.map(f => f.id === field.id ? { ...f, value: v } : f) });
+      uiPrompt({ title: "מילוי טקסט", label: "הטקסט שיופיע במסמך", defaultValue: field.value || "" }).then((v) => {
+        if (v == null) return;
+        const cur = latestDocRef.current;
+        onUpdate({ ...cur, fields: cur.fields.map(f => f.id === field.id ? { ...f, value: v } : f) });
+      });
     }
   };
 
@@ -335,7 +341,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
             <div className="side-group">
               <p className="side-title">שדות במסמך ({doc.fields.length})</p>
               <div className="field-list">
-                {doc.fields.length === 0 && <div style={{ fontSize: 12.5, color: "var(--gray-500)", padding: 12, textAlign: "center", background: "var(--gray-50)", borderRadius: 10 }}>בחר/י כלי משמאל ולחץ על המסמך כדי להוסיף שדה.</div>}
+                {doc.fields.length === 0 && <div style={{ fontSize: 12.5, color: "var(--gray-500)", padding: 12, textAlign: "center", background: "var(--gray-50)", borderRadius: 10 }}>בוחרים כלי ולוחצים על המסמך כדי להוסיף שדה.</div>}
                 {doc.fields.map(f => (
                   <div key={f.id}
                     className={"field-list-item " + (selectedField === f.id ? "selected" : "")}
@@ -364,7 +370,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
                   <Icon name="edit" size={14}/> ערוך פרטי הצעה
                 </button>
                 <p style={{ fontSize: 11.5, color: "var(--gray-500)", margin: "8px 2px 0", lineHeight: 1.5 }}>
-                  שם הלקוח, שם העסק, תאריך ומחירים — מתעדכנים מיד במסמך.
+                  שם הלקוח, שם העסק, תאריך ומחירים. מתעדכנים מיד במסמך.
                 </p>
               </div>
             )}
@@ -375,7 +381,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
                   <Icon name="edit" size={14}/> ערוך פרטי החלטה
                 </button>
                 <p style={{ fontSize: 11.5, color: "var(--gray-500)", margin: "8px 2px 0", lineHeight: 1.5 }}>
-                  ספק, סכום, חשבון יעד ומורשי חתימה — מתעדכנים מיד במסמך.
+                  ספק, סכום, חשבון יעד ומורשי חתימה. מתעדכנים מיד במסמך.
                 </p>
               </div>
             )}
@@ -386,7 +392,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
                   <Icon name="edit" size={14}/> ערוך סיכום שיחה
                 </button>
                 <p style={{ fontSize: 11.5, color: "var(--gray-500)", margin: "8px 2px 0", lineHeight: 1.5 }}>
-                  שאלות, סיכום, סטטוס רכישה — מתעדכנים מיד במסמך.
+                  שאלות, סיכום וסטטוס רכישה. מתעדכנים מיד במסמך.
                 </p>
               </div>
             )}
@@ -398,7 +404,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
                 שליחה לחתימת הצד השני
               </button>
               {theirFields.length === 0 && <p style={{ fontSize: 11.5, color: "var(--gray-500)", margin: "8px 0 0", textAlign: "center" }}>
-                ניתן לשלוח גם בלי שדות לצד השני — הקישור יציג להם רק את המסמך החתום על ידך.
+                אפשר לשלוח גם בלי שדות לצד השני, ואז הקישור מציג רק את המסמך החתום על ידך.
               </p>}
             </div>
           </>
@@ -410,13 +416,13 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <Icon name="shield-check" size={16} color="var(--blue-600)"/>
                 <strong style={{ color: "var(--blue-800)", fontSize: 13.5 }}>
-                  {doc.status === "completed" ? "מסמך חתום ונעול" : "המסמך נשלח — נעול לעריכה"}
+                  {doc.status === "completed" ? "מסמך חתום ונעול" : "המסמך נשלח ונעול לעריכה"}
                 </strong>
               </div>
               <p style={{ fontSize: 12.5, color: "var(--gray-600)", margin: 0, lineHeight: 1.55 }}>
                 {doc.status === "completed"
                   ? "המסמך הושלם בידי שני הצדדים. ניתן לצפות בלבד ולהוריד עותק."
-                  : "אחרי שליחה הקישור יציג ללקוח את המסמך. כל שינוי כאן מושבת — לקבלת עותק חדש, יש לפתוח מסמך חדש."}
+                  : "אחרי שליחה הקישור יציג ללקוח את המסמך. אי אפשר לשנות כאן. לגרסה חדשה פותחים מסמך חדש."}
               </p>
             </div>
             {doc.shareId && (
@@ -443,7 +449,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
                 <strong style={{ color: "var(--orange-600)", fontSize: 13.5 }}>תורך לחתום</strong>
               </div>
               <p style={{ fontSize: 13, color: "var(--gray-700)", margin: 0, lineHeight: 1.5 }}>
-                לחץ/י על השדות הכתומים במסמך כדי להשלים אותם. כשתסיים, שלח/י את המסמך חזרה.
+                לוחצים על השדות המסומנים במסמך כדי להשלים אותם, ובסוף שולחים את המסמך חזרה.
               </p>
             </div>
             <button className="btn btn-success" style={{ width: "100%", justifyContent: "center", marginTop: 14 }}
@@ -488,7 +494,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
                       ? <div className="page-content"><div className="uploaded-placeholder">
                           <Icon name="file-text" size={48} color="var(--gray-400)" />
                           <h3 style={{ margin: "12px 0 4px", color: "var(--gray-700)" }}>{doc.uploadedFileName || doc.name}</h3>
-                          <p style={{ color: "var(--gray-500)", fontSize: 13, margin: 0 }}>הוסף שדות חתימה במיקומים הרצויים על המסמך.</p>
+                          <p style={{ color: "var(--gray-500)", fontSize: 13, margin: 0 }}>מוסיפים שדות חתימה במקומות הרצויים במסמך.</p>
                         </div></div>
                       : (template ? template.render(pi, doc) : <div className="page-content"><p>תוכן מסמך</p></div>))
                   }
@@ -539,7 +545,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
               <p className="side-title">חותמים ({signers.length || 1})</p>
               {signers.length === 0 ? (
                 <p style={{ fontSize: 11.5, color: "var(--gray-500)", margin: "0 2px 8px", lineHeight: 1.5 }}>
-                  כברירת מחדל יש חותם אחד — הצד השני. אפשר להוסיף חותמים נוספים,
+                  כברירת מחדל יש חותם אחד, הצד השני. אפשר להוסיף חותמים נוספים,
                   וכל אחד יקבל קישור אישי לחתימה לפי הסדר.
                 </p>
               ) : (
@@ -585,7 +591,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
             </div>
 
             <div className="side-group">
-              <p className="side-title">כלים — לחץ ואז סמן על המסמך</p>
+              <p className="side-title">כלים: בוחרים כלי ולוחצים על המסמך</p>
               <div className="tool-row">
                 {TOOLS.map(t => (
                   <div key={t.id}
@@ -653,7 +659,7 @@ const Editor = ({ doc, onUpdate, onBack, onOpenShare, onEditQuote, onEditBankTra
               )}
             </div>
             <p style={{ fontSize: 11.5, color: "var(--gray-500)", margin: "10px 2px 0", lineHeight: 1.5 }}>
-              לאחר יצירת החתימה, לחץ/י על השדות הכתומים במסמך כדי להחיל אותה. שדות תאריך וטקסט יתמלאו בעת לחיצה.
+              אחרי יצירת החתימה, לוחצים על השדות המסומנים במסמך כדי להחיל אותה. שדות תאריך וטקסט יתמלאו בעת לחיצה.
             </p>
           </div>
         )}

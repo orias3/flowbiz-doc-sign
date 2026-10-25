@@ -75,7 +75,7 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "", defaultMode = "
   const onUploadFile = (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
-    if (file.size > 4 * 1024 * 1024) { alert("גודל מקסימלי לחתימה: 4MB"); return; }
+    if (file.size > 4 * 1024 * 1024) { uiAlert({ title: "הקובץ גדול מדי", message: "גודל מקסימלי לחתימה: 4MB" }); return; }
     const reader = new FileReader();
     reader.onload = () => setUploaded(reader.result);
     reader.readAsDataURL(file);
@@ -157,7 +157,7 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "", defaultMode = "
   return (
     <Modal open={open} onClose={onClose} wide
       title="צור את החתימה שלך"
-      subtitle="צייר/י, הקליד/י שם או העלה/י תמונת חתימה — נשמור אותה לשימוש חוזר במסמכים הבאים."
+      subtitle="מציירים, מקלידים שם או מעלים תמונת חתימה. נשמור אותה לשימוש חוזר במסמכים הבאים."
     >
       <div className="sigpad-tabs">
         <button className={mode === "draw" ? "active" : ""} onClick={() => setMode("draw")}>ציור חופשי</button>
@@ -171,7 +171,7 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "", defaultMode = "
           <div className="sigpad-saved-empty">
             <div style={{ fontSize: 14, color: "var(--gray-600)", textAlign: "center", lineHeight: 1.6 }}>
               אין חתימות שמורות עדיין.<br/>
-              עבור/עברי לטאב "ציור חופשי" / "העלאה מקובץ" כדי ליצור את הראשונה — היא תופיע כאן בפעם הבאה.
+              יוצרים את הראשונה בלשונית "ציור חופשי" או "העלאה מקובץ", והיא תופיע כאן בפעם הבאה.
             </div>
           </div>
         ) : (
@@ -195,7 +195,7 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "", defaultMode = "
               style={{ width: "100%", height: "100%", display: "block" }}
             />
             <div className="sigpad-baseline"/>
-            {!hasStrokes && <div className="sigpad-hint">חתום/חתמי כאן</div>}
+            {!hasStrokes && <div className="sigpad-hint">חותמים כאן</div>}
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10, fontSize: 12, color: "var(--gray-500)" }}>
             <span>טיפ: אפשר להשתמש בעכבר, באצבע או בעט אלקטרוני.</span>
@@ -210,7 +210,7 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "", defaultMode = "
         <>
           <input
             value={typed} onChange={e => setTyped(e.target.value)}
-            placeholder="הקלד/י את שמך המלא"
+            placeholder="השם המלא שלך"
             style={{
               width: "100%", border: "1.5px solid var(--gray-200)", borderRadius: 10,
               padding: "12px 14px", fontSize: 14, marginBottom: 12, outline: "none",
@@ -231,7 +231,7 @@ const SignaturePad = ({ open, onClose, onSave, defaultName = "", defaultMode = "
               <div className="sigpad-upload-preview">
                 <img src={uploaded} alt="signature" />
                 <button className="btn btn-ghost btn-sm" onClick={() => fileRef.current && fileRef.current.click()}>
-                  <Icon name="upload-cloud" size={14}/> בחר/י קובץ אחר
+                  <Icon name="upload-cloud" size={14}/> בחירת קובץ אחר
                 </button>
               </div>
             ) : (

@@ -583,7 +583,7 @@ DOC_TEMPLATES.flowbiz_quote = {
             <img src="assets/logo.png" alt="FlowBiz" className="quote-head-logo" />
           </div>
           <hr className="quote-hr" />
-          {q.eyebrow && <div className="quote-eyebrow">{q.eyebrow}</div>}
+          {q.eyebrow && <div className="quote-eyebrow">{q.eyebrow}{q.quoteNumber ? ` · מס׳ ${q.quoteNumber}` : ""}</div>}
           {q.heroTitle && <h1 className="quote-h1">{q.heroTitle}</h1>}
           {q.heroLead && <p className="quote-lead">{q.heroLead}</p>}
 

@@ -10,4 +10,5 @@ import './documents.jsx';
 import './signature-pad.jsx';
 import './editor.jsx';
 import './client-view.jsx';
+import './tools.jsx';
 import './app.jsx';

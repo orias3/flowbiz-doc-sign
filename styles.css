@@ -1970,3 +1970,111 @@ h1, h2, h3 { font-family: var(--font-head); }
 @media (max-width: 720px) {
   .modal { border-radius: var(--radius-panel); }
 }
+
+/* ============================================================
+   UX additions (Oct 2026): dialogs, "new" badge, my-signature,
+   statistics, backup.
+   ============================================================ */
+.btn-danger { background: var(--error); color: #fff; box-shadow: 0 6px 14px rgba(200,68,58,.22); border-radius: var(--radius-lg); }
+.btn-danger:hover { background: var(--red-600); }
+.ui-dialog-scrim { z-index: 300; }
+.ui-dialog { width: min(440px, calc(100% - 32px)); }
+.ui-dialog .qfield { margin-top: 4px; }
+.ui-dialog .qfield input, .ui-dialog .qfield textarea { font-size: 15px; padding: 11px 14px; }
+
+/* Library: signed since you last looked */
+.pill-new { background: var(--gold); color: var(--ink); font-weight: 800; }
+.doc-card.is-new { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(232,180,74,.35), var(--shadow-sm); }
+.doc-num {
+  margin-inline-start: auto; font-size: 11.5px; font-weight: 700; color: var(--sky-text);
+  direction: ltr; unicode-bidi: isolate;
+}
+
+/* Saved signatures: mark "my signature" */
+.sig-mine-btn {
+  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
+  border: 1.5px solid var(--line); background: var(--surface); color: var(--muted);
+  border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 700;
+  cursor: pointer; font-family: inherit; transition: all 150ms var(--ease);
+}
+.sig-mine-btn:hover { border-color: var(--sky); color: var(--flag); }
+.sig-mine-btn.on { background: var(--blue-50); border-color: var(--flag); color: var(--flag); }
+.sig-mine-btn.on svg { fill: var(--flag); }
+.sig-owner {
+  flex-shrink: 0; font-size: 11.5px; font-weight: 700; color: var(--muted);
+  background: var(--canvas); border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px;
+}
+
+/* Statistics */
+.kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.kpi { background: var(--canvas); border: 1px solid var(--line); border-radius: var(--radius-xl); padding: 14px 16px; }
+.kpi-num { font-family: var(--font-head); font-size: 26px; font-weight: 800; color: var(--ink); line-height: 1.1; }
+.kpi-num-sm { font-size: 20px; }
+.kpi-lbl { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+.stats-table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 16px; font-size: 13.5px; }
+.stats-table th { text-align: right; font-size: 12px; color: var(--muted); font-weight: 700; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.stats-table td { padding: 9px 10px; border-bottom: 1px solid var(--line); color: var(--ink); }
+.stats-table td:not(:first-child), .stats-table th:not(:first-child) { text-align: center; font-family: var(--font-head); font-weight: 600; }
+.stats-table tr:last-child td { border-bottom: 0; }
+.stats-h3 { font-size: 15px; font-weight: 700; color: var(--ink); margin: 20px 0 8px; }
+.stats-empty { font-size: 13px; color: var(--muted); margin: 0; }
+.stats-waiting { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
+.stats-waiting-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md);
+  padding: 9px 12px; cursor: pointer; font-family: inherit; text-align: right; color: var(--ink);
+}
+.stats-waiting-row:hover { border-color: var(--sky); background: var(--tint); }
+.stats-waiting-name { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Backup */
+.backup-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.backup-tile {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: right;
+  background: var(--surface); border: 1.5px solid var(--line); border-radius: var(--radius-xl);
+  padding: 16px; cursor: pointer; font-family: inherit; color: var(--ink); transition: all 150ms var(--ease);
+}
+.backup-tile:hover { border-color: var(--sky); background: var(--tint); }
+.backup-tile[disabled] { opacity: .6; cursor: wait; }
+.backup-tile-icon { width: 40px; height: 40px; border-radius: var(--radius-md); background: var(--note-blue); color: var(--flag); display: grid; place-items: center; margin-bottom: 6px; }
+.backup-tile-title { font-family: var(--font-head); font-weight: 700; font-size: 15px; }
+.backup-tile-sub { font-size: 12.5px; color: var(--muted); }
+.backup-note { font-size: 12.5px; color: var(--muted); margin: 14px 0 0; }
+
+@media (max-width: 720px) {
+  .kpi-grid { grid-template-columns: 1fr 1fr; }
+  .backup-actions { grid-template-columns: 1fr; }
+}
+
+/* ============================================================
+   Design-system accents inside documents — paint only.
+   Nothing here may change a box size or position: field positions on
+   sent documents are absolute pixels. Pseudo-elements are absolutely
+   positioned; only colours, shadows, corners and backgrounds change.
+   Verified with the before/after layout measurement over all docs.
+   ============================================================ */
+.page .quote-eyebrow { color: var(--flag); }
+.page .qblk-callout { position: relative; background: var(--note-blue); border-color: transparent; border-radius: 4px 4px 4px 18px; box-shadow: 0 1px 2px rgba(45,62,102,.08), 0 8px 18px rgba(45,62,102,.09); }
+.page .qblk-callout::before {
+  content: ""; position: absolute; top: -6px; right: 50%; width: 96px; height: 20px;
+  transform: translateX(50%) rotate(-1.5deg); background: rgba(255,255,255,.75);
+  box-shadow: 0 1px 1px rgba(45,62,102,.10); pointer-events: none;
+}
+.page .qblk-callout::after {
+  content: ""; position: absolute; left: 0; bottom: 0; width: 18px; height: 18px; border-radius: 0 0 0 18px;
+  background: linear-gradient(45deg, #FFFFFF 50%, #C6D7F3 50%); pointer-events: none;
+}
+.page .quote-price-box { position: relative; background: var(--surface); border-color: var(--line); box-shadow: 0 1px 2px rgba(45,62,102,.06), 0 6px 16px rgba(45,62,102,.07); }
+.page .quote-price-box::before {
+  content: ""; position: absolute; top: -7px; right: 50%; width: 110px; height: 20px;
+  transform: translateX(50%) rotate(-1.5deg); background: rgba(232,180,74,.85); pointer-events: none;
+}
+.page .quote-price-new { color: var(--ink); }
+.page .qblk-milestone, .page .quote-card, .page .sc-section {
+  background: var(--surface); border-color: var(--line);
+  box-shadow: 0 1px 2px rgba(45,62,102,.05), 0 4px 12px rgba(45,62,102,.05);
+}
+.page .quote-card-icon, .page .cv-tool-icon { background: var(--note-blue); color: var(--flag); }
+.page .quote-contact, .page .quote-acct-banner { background: var(--tint); }
+.page .quote-hr { border-top-color: var(--line); }
+.page .sc-check.on .sc-check-box { background: var(--money); border-color: var(--money); }

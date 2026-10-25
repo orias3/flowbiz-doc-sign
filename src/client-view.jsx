@@ -11,7 +11,7 @@ const CLIENT_STAMP_KEY = "flowbiz-client-stamp-v1";
 const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, downloadDoc, signerName, blockedBy }) => {
   const template = window.DOC_TEMPLATES[doc.template];
   const senderName = doc.sender || "השולח";
-  const counterpartyName = signerName || template?.counterparty || doc.counterparty || "אורח/ת";
+  const counterpartyName = signerName || template?.counterparty || doc.counterparty || "אורח";
   // Multi-signer sequential flow: when an earlier signer hasn't signed yet,
   // this link is view-only until their turn arrives.
   const isBlocked = !!blockedBy;
@@ -67,10 +67,14 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
   const nothingToDo = theirFields.length === 0;
   const isCompleted = doc.status === "completed";
 
+  // Latest doc for updates that resolve after an async dialog.
+  const latestDocRef = React.useRef(doc);
+  latestDocRef.current = doc;
   const updateField = (id, patch) => {
+    const cur = latestDocRef.current;
     onUpdate({
-      ...doc,
-      fields: doc.fields.map((f) => (f.id === id ? { ...f, ...patch } : f)),
+      ...cur,
+      fields: cur.fields.map((f) => (f.id === id ? { ...f, ...patch } : f)),
     });
   };
 
@@ -78,7 +82,7 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) {
-      alert("גודל מקסימלי לחותמת: 2MB");
+      uiAlert({ title: "הקובץ גדול מדי", message: "גודל מקסימלי לחותמת: 2MB" });
       return;
     }
     const reader = new FileReader();
@@ -113,8 +117,9 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
     } else if (field.type === "date") {
       updateField(field.id, { value: window.formatDate() });
     } else if (field.type === "text") {
-      const v = prompt("הקלד/י את הטקסט:", field.value || "");
-      if (v != null && v.trim()) updateField(field.id, { value: v });
+      uiPrompt({ title: "מילוי טקסט", label: "הטקסט שיופיע במסמך", defaultValue: field.value || "" }).then((v) => {
+        if (v != null && v.trim()) updateField(field.id, { value: v });
+      });
     } else if (field.type === "stamp") {
       const stamp = stampOverride || clientStamp;
       if (!stamp) {
@@ -231,10 +236,10 @@ const ClientView = ({ doc, onUpdate, mySignature, onNeedSignature, onComplete, d
             <h1>{doc.name}</h1>
             {isBlocked && !isCompleted ? (
               <p style={{ color: "var(--orange-600)" }}>
-                <Icon name="clock" size={14} /> שלום {counterpartyName}, המסמך נחתם לפי סדר — התור שלך יגיע אחרי החתימה של {blockedBy}. אפשר לעיין במסמך בינתיים; נעדכן אותך במייל כשיגיע תורך.
+                <Icon name="clock" size={14} /> שלום {counterpartyName}, המסמך נחתם לפי סדר, והתור שלך יגיע אחרי החתימה של {blockedBy}. אפשר לעיין במסמך בינתיים; נעדכן אותך במייל כשיגיע תורך.
               </p>
             ) : !isCompleted ? (
-              <p>שלום {counterpartyName}, עברו על המסמך. סמני/סמנו את השדות בכתום כדי להשלים את החתימה ולשלוח חזרה.</p>
+              <p>שלום {counterpartyName}, עוברים על המסמך, ממלאים את השדות המסומנים בכחול ושולחים חזרה.</p>
             ) : (
               <p style={{ color: "var(--green-700)" }}>
                 <Icon name="check-circle" size={14} /> המסמך נחתם והוחזר אל {senderName}. אפשר להוריד עותק לשמירה.
