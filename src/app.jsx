@@ -1,5 +1,7 @@
 // Main app — library + editor + share modal + counterparty view
 
+import { preferNewer } from './sync-merge.js';
+
 const { useState: useStateA, useEffect: useEffectA, useMemo: useMemoA } = React;
 
 // LocalStorage helpers — fake backend
@@ -2017,8 +2019,9 @@ const App = () => {
             lastSyncedTsRef.current = (cs._meta && cs._meta.lastUpdated) || 0;
             lastSyncedVersionRef.current = (cs._meta && cs._meta.version) || 0;
             if (Array.isArray(cs.docs)) {
-              lastAppliedDocsRef.current = cs.docs;
-              setDocs(cs.docs);
+              const { items, keptLocal } = preferNewer(cs.docs, docsRef.current);
+              lastAppliedDocsRef.current = keptLocal ? null : items;
+              setDocs(items);
             }
             if (Array.isArray(cs.savedSignatures)) saveSavedSignaturesAll(cs.savedSignatures);
             if (Array.isArray(cs.vendors)) saveVendorsAll(cs.vendors);
@@ -2039,9 +2042,14 @@ const App = () => {
           const merged = res.mergedState.docs;
           // Only re-render if it actually differs from what we already hold.
           if (merged !== docsRef.current) {
+            // Keep anything edited locally while this push was in flight
+            // (e.g. a field dragged during the round trip) — otherwise the
+            // reply would move it back to the snapshot position.
+            const { items, keptLocal } = preferNewer(merged, docsRef.current);
             isApplyingRemoteRef.current = true;
-            lastAppliedDocsRef.current = merged;
-            setDocs(merged);
+            lastAppliedDocsRef.current = keptLocal ? null : items;
+            setDocs(items);
+            if (keptLocal) morePendingRef.current = true;
             setTimeout(() => { isApplyingRemoteRef.current = false; }, 50);
           }
           // The server also merges vendors/signatures by id — adopt them so a
@@ -2071,7 +2079,7 @@ const App = () => {
   // changes pending or are currently pushing — never overwrite unsaved edits.
   doPullRef.current = async () => {
     if (!adminAuth) return;
-    if (isPushingRef.current || morePendingRef.current) {
+    if (isPushingRef.current || morePendingRef.current || pushTimerRef.current) {
       queuedPullRef.current = true;
       return;
     }
@@ -2097,8 +2105,9 @@ const App = () => {
       lastSyncedTsRef.current = remoteTs;
       lastSyncedVersionRef.current = remoteVer;
       if (Array.isArray(state.docs)) {
-        lastAppliedDocsRef.current = state.docs;
-        setDocs(state.docs);
+        const { items, keptLocal } = preferNewer(state.docs, docsRef.current);
+        lastAppliedDocsRef.current = keptLocal ? null : items;
+        setDocs(items);
       }
       if (Array.isArray(state.savedSignatures)) saveSavedSignaturesAll(state.savedSignatures);
       if (Array.isArray(state.vendors)) saveVendorsAll(state.vendors);
@@ -2132,11 +2141,33 @@ const App = () => {
 
   // Push on local docs change. Skips if the change came from applying remote
   // state (the lastAppliedDocsRef === current docs check).
+  // Debounced: dragging a field changes docs on every mouse move, so we wait
+  // for a short pause instead of firing a full-state push per pixel. Changes
+  // are in localStorage immediately; the timer only delays the upload.
+  const pushTimerRef = React.useRef(null);
   useEffectA(() => {
     if (!adminAuth) return;
     if (docs === lastAppliedDocsRef.current) return;
-    if (doPushRef.current) doPushRef.current();
+    if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+    pushTimerRef.current = setTimeout(() => {
+      pushTimerRef.current = null;
+      if (doPushRef.current) doPushRef.current();
+    }, 700);
   }, [docs, adminAuth]);
+
+  // Leaving the tab: send pending changes right away.
+  useEffectA(() => {
+    const flush = () => {
+      if (!pushTimerRef.current) return;
+      clearTimeout(pushTimerRef.current);
+      pushTimerRef.current = null;
+      if (doPushRef.current) doPushRef.current();
+    };
+    const onVis = () => { if (document.visibilityState === "hidden") flush(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pagehide", flush);
+    return () => { document.removeEventListener("visibilitychange", onVis); window.removeEventListener("pagehide", flush); };
+  }, []);
 
   // Push on saved-sigs / vendors change. The isApplyingRemote gate prevents
   // an apply-remote from re-pushing immediately.
@@ -2642,7 +2673,7 @@ const App = () => {
       setSharedDoc(stamped);
       return;
     }
-    setDocs(docs.map((d) => d.id === stamped.id ? stamped : d));
+    setDocs((prev) => prev.map((d) => d.id === stamped.id ? stamped : d));
   };
 
   const activeDoc = sharedDoc || docs.find((d) => d.id === activeDocId && !d._deleted);
