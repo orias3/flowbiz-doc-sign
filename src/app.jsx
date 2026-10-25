@@ -262,7 +262,7 @@ function sanitizeForCounterparty(doc) {
 const DOC_TYPE_META = {
   flowbiz_quote: { label: "הצעת מחיר", icon: "file-text", color: "var(--blue-700)", bg: "var(--blue-50)" },
   bank_transfer: { label: "העברה לבנק", icon: "shield-check", color: "var(--green-700)", bg: "var(--green-50)" },
-  sales_call: { label: "סיכום שיחה", icon: "users", color: "#5D3FDB", bg: "var(--purple-100)" },
+  sales_call: { label: "סיכום שיחה", icon: "users", color: "var(--sky-text)", bg: "var(--note-blue)" },
 };
 function docTypeKey(doc) {
   if (DOC_TYPE_META[doc.template]) return doc.template;
@@ -351,7 +351,7 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
               דף חתימות
               <span className="pill pill-ai" style={{ padding: "2px 8px", fontSize: 11 }}>FlowBiz Sign</span>
             </div>
-            <div className="brand-sub">שולחים, חותמים, מחזירים — בלי מדפסת, בלי סורק.</div>
+            <div className="brand-sub">שולחים, חותמים ומקבלים בחזרה. בלי מדפסת ובלי סורק.</div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -375,8 +375,8 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
       <div className="library">
         <div className="library-head">
           <div>
-            <h1>המסמכים שלי</h1>
-            <p className="sub">העלה מסמך, סמן איפה לחתום ולהחתים, וקבל קישור לשליחה.</p>
+            <h1><span className="mk">המסמכים</span> שלי</h1>
+            <p className="sub">מעלים מסמך, מסמנים איפה חותמים ומחתימים, ומקבלים קישור לשליחה.</p>
           </div>
           <div className="library-cta">
             <button className="btn btn-secondary btn-lg" onClick={() => onNewSalesCall && onNewSalesCall()}>
