@@ -1,6 +1,7 @@
 // Main app — library + editor + share modal + counterparty view
 
 import { preferNewer } from './sync-merge.js';
+import { pagesToPdf, downloadDocs } from './doc-export.jsx';
 
 const { useState: useStateA, useEffect: useEffectA, useMemo: useMemoA } = React;
 
@@ -315,12 +316,14 @@ function timeAgo(ts) {
   return new Date(ts).toLocaleDateString("he-IL");
 }
 
-const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer, onNewSalesCall, onOpenSavedSigs, onOpenStats, onOpenBackup, seen, onDelete, onDuplicate, adminEmail, onLogout }) => {
+const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer, onNewSalesCall, onOpenSavedSigs, onOpenStats, onOpenBackup, seen, onDelete, onDuplicate, onBulkDownload, onBulkDuplicate, onBulkDelete, adminEmail, onLogout }) => {
   const [drag, setDrag] = useStateA(false);
   const [query, setQuery] = useStateA("");
   const [typeFilter, setTypeFilter] = useStateA("all");
   const [statusFilter, setStatusFilter] = useStateA("all");
   const [sortBy, setSortBy] = useStateA("updated");
+  const [selected, setSelected] = useStateA(() => new Set());
+  const [bulkBusy, setBulkBusy] = useStateA(false);
   const fileRef = React.useRef(null);
 
   // Live docs = everything that isn't a deletion tombstone.
@@ -354,6 +357,43 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
     });
     return list;
   }, [liveDocs, query, typeFilter, statusFilter, sortBy, seen]);
+
+  // ── Multi-select: checkbox per card, select-all over the current filter,
+  // and an action bar for shared actions. While anything is selected, a click
+  // on a card toggles it instead of opening it.
+  const selectedDocs = filtered.filter((d) => selected.has(d.id));
+  const selecting = selectedDocs.length > 0;
+  const allSelected = filtered.length > 0 && selectedDocs.length === filtered.length;
+  const toggleSel = (id) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(filtered.map((d) => d.id)));
+  const clearSel = () => setSelected(new Set());
+  // Keep the selection inside what is visible (a filter change drops hidden ones).
+  useEffectA(() => {
+    setSelected((prev) => {
+      if (!prev.size) return prev;
+      const visible = new Set(filtered.map((d) => d.id));
+      const next = new Set([...prev].filter((id) => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [filtered]);
+  useEffectA(() => {
+    if (!selecting) return;
+    const onKey = (e) => { if (e.key === "Escape" && !document.querySelector(".modal-scrim")) clearSel(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selecting]);
+  const runBulk = async (fn, clearAfter) => {
+    if (bulkBusy) return;
+    setBulkBusy(true);
+    try {
+      const done = await fn(selectedDocs.map((d) => d.id));
+      if (clearAfter && done !== false) clearSel();
+    } finally { setBulkBusy(false); }
+  };
 
   const typeChips = [
     { key: "all", label: "הכל" },
@@ -468,6 +508,13 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="חיפוש לפי שם לקוח או מסמך…" />
             {query && <button className="lib-search-clear" onClick={() => setQuery("")}><Icon name="x" size={13} /></button>}
           </div>
+          <button className={"lib-chip lib-select-all " + (allSelected ? "active" : "")} onClick={toggleAll} disabled={!filtered.length}
+            title={allSelected ? "ניקוי הבחירה" : "בחירת כל המסמכים שמוצגים"}>
+            <span className={"doc-check-box" + (allSelected ? " on" : selecting ? " some" : "")}>
+              {allSelected ? <Icon name="check" size={11} /> : selecting ? <span className="doc-check-dash" /> : null}
+            </span>
+            בחירת הכל
+          </button>
           <div className="lib-chips">
             {typeChips.map((c) => (
               <button key={c.key} className={"lib-chip " + (typeFilter === c.key ? "active" : "")} onClick={() => setTypeFilter(c.key)}>{c.label}</button>
@@ -516,7 +563,12 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
             const fresh = isNewlySigned(doc, seen);
             const qNum = doc.template === "flowbiz_quote" && doc.quoteData && doc.quoteData.quoteNumber;
             return (
-              <div key={doc.id} className={"doc-card" + (fresh ? " is-new" : "")} onClick={() => onOpen(doc.id)}>
+              <div key={doc.id} className={"doc-card" + (fresh ? " is-new" : "") + (selected.has(doc.id) ? " is-selected" : "") + (selecting ? " selecting" : "")}
+                onClick={() => (selecting ? toggleSel(doc.id) : onOpen(doc.id))}>
+                <button className={"doc-check" + (selected.has(doc.id) ? " on" : "")} title={selected.has(doc.id) ? "הסרה מהבחירה" : "בחירה"}
+                  aria-pressed={selected.has(doc.id)} onClick={(e) => { e.stopPropagation(); toggleSel(doc.id); }}>
+                  <span className={"doc-check-box" + (selected.has(doc.id) ? " on" : "")}>{selected.has(doc.id) && <Icon name="check" size={12} />}</span>
+                </button>
                 <div className="doc-card-actions">
                   <button className="doc-card-act" title="שכפול" onClick={(e) => { e.stopPropagation(); onDuplicate(doc.id); }}>
                     <Icon name="copy" size={14} />
@@ -556,6 +608,21 @@ const Library = ({ docs, onOpen, onUpload, onNew, onNewQuote, onNewBankTransfer,
           })}
         </div>
       </div>
+      {selecting && (
+        <div className="bulk-bar" role="toolbar" aria-label="פעולות על המסמכים שנבחרו">
+          <span className="bulk-count">{selectedDocs.length === 1 ? "נבחר מסמך אחד" : `נבחרו ${selectedDocs.length} מסמכים`}</span>
+          <button className="btn btn-primary btn-sm" disabled={bulkBusy} onClick={() => runBulk(onBulkDownload, false)}>
+            <Icon name="download" size={14} /> {bulkBusy ? "מכין..." : selectedDocs.length === 1 ? "הורדת PDF" : "הורדה (ZIP)"}
+          </button>
+          <button className="btn btn-secondary btn-sm" disabled={bulkBusy} onClick={() => runBulk(onBulkDuplicate, true)}>
+            <Icon name="copy" size={14} /> שכפול
+          </button>
+          <button className="btn btn-secondary btn-sm bulk-del" disabled={bulkBusy} onClick={() => runBulk(onBulkDelete, true)}>
+            <Icon name="trash" size={14} /> מחיקה
+          </button>
+          <button className="bulk-close" onClick={clearSel} title="ביטול הבחירה (Esc)"><Icon name="x" size={16} /></button>
+        </div>
+      )}
     </>);
 
 };
@@ -2438,16 +2505,13 @@ const App = () => {
   // (fields, uploadedPages, quoteData/bankTransferData/salesCallData incl. their
   // nested arrays/blocks) so edits to the copy never touch the original. The
   // copy starts as a fresh unshared/unsigned draft.
-  const duplicateDoc = (id) => {
-    const src = docs.find((d) => d.id === id);
-    if (!src) return;
+  const makeDuplicate = (src) => {
     let clone;
     try {
       clone = JSON.parse(JSON.stringify(src));
     } catch (e) {
       console.error("duplicate clone failed", e);
-      showToast("שגיאה בשכפול המסמך");
-      return;
+      return null;
     }
     clone.id = "doc-" + genId();
     clone.name = "עותק · " + (src.name || "מסמך");
@@ -2467,8 +2531,68 @@ const App = () => {
     if (Array.isArray(clone.signers)) {
       clone.signers = clone.signers.map((s) => ({ ...s, status: "pending", signedAt: undefined }));
     }
+    return clone;
+  };
+  const duplicateDoc = (id) => {
+    const src = docs.find((d) => d.id === id);
+    if (!src) return;
+    const clone = makeDuplicate(src);
+    if (!clone) { showToast("שגיאה בשכפול המסמך"); return; }
     setDocs((prev) => [clone, ...prev]);
     showToast("נוצר עותק חדש. שינויים בו לא משפיעים על המקור.");
+  };
+
+  // ── Bulk actions from the library selection ──
+  const bulkDownload = async (ids) => {
+    const list = ids.map((id) => docs.find((d) => d.id === id)).filter((d) => d && !d._deleted);
+    if (!list.length) return;
+    try {
+      showToast(list.length === 1 ? "מכין PDF..." : `מכין 0 מתוך ${list.length}...`, null, 120000);
+      const res = await downloadDocs(list, (done, total) => {
+        if (total > 1) showToast(`מכין ${done} מתוך ${total}...`, null, 120000);
+      });
+      if (res.failed.length) showToast(`הורדו ${res.ok} מסמכים. נכשלו: ${res.failed.join(", ")}`, null, 6000);
+      else showToast(list.length === 1 ? "המסמך הורד" : `הורדו ${res.ok} מסמכים בקובץ ZIP`);
+    } catch (e) {
+      console.error("bulk download failed", e);
+      showToast("ההורדה נכשלה");
+    }
+  };
+  const bulkDuplicate = (ids) => {
+    const clones = ids.map((id) => docs.find((d) => d.id === id)).filter(Boolean).map(makeDuplicate).filter(Boolean);
+    if (!clones.length) return false;
+    setDocs((prev) => [...clones, ...prev]);
+    showToast(clones.length === 1 ? "נוצר עותק חדש" : `נוצרו ${clones.length} עותקים`);
+    return true;
+  };
+  const bulkDelete = async (ids) => {
+    const list = ids.map((id) => docs.find((d) => d.id === id)).filter((d) => d && !d._deleted);
+    if (!list.length) return false;
+    const ok = await uiConfirm({
+      title: list.length === 1 ? "למחוק את המסמך?" : `למחוק ${list.length} מסמכים?`,
+      message: "אפשר לבטל ממש אחרי המחיקה. קישורי חתימה שכבר נשלחו ממשיכים לעבוד.",
+      confirmLabel: "מחיקה", danger: true,
+    });
+    if (!ok) return false;
+    const stash = {};
+    list.forEach((d) => { stash[d.id] = d; });
+    const now = Date.now();
+    setDocs((prev) => prev.map((d) => (stash[d.id] ? { id: d.id, _deleted: true, deletedAt: now, updatedAt: now } : d)));
+    showToast(list.length === 1 ? "המסמך נמחק" : `${list.length} מסמכים נמחקו`, {
+      label: "ביטול",
+      fn: () => {
+        const t = Date.now();
+        setDocs((prev) => prev.map((d) => {
+          const saved = stash[d.id];
+          if (!saved) return d;
+          const restored = { ...saved, updatedAt: t };
+          delete restored._deleted; delete restored.deletedAt;
+          return restored;
+        }));
+        showToast("המחיקה בוטלה");
+      },
+    }, 8000);
+    return true;
   };
 
   const newBlankDoc = () => {
@@ -2699,168 +2823,21 @@ const App = () => {
   const downloadDoc = async (d) => {
     if (!d) return;
     showToast("מכין הורדה...");
-    const PW = 794, PH = 1123;
     if (typeof window.html2canvas !== "function") {
       showToast("ההורדה נכשלה: רכיב ה-PDF לא נטען. כדאי לרענן את הדף.");
       return;
     }
     try {
-      const jsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
-      const pdf = new jsPDFCtor({ unit: "px", format: [PW, PH], hotfixes: ["px_scaling"] });
-
       // Capture each page directly from the DOM — this includes the template's
       // HTML content (text, tables, images) plus any overlaid signature/stamp/
       // date/text fields, so the PDF matches what the user sees on screen.
-      const pageEls = Array.from(document.querySelectorAll('[data-page-idx]'));
+      const pageEls = document.querySelectorAll('[data-page-idx]');
 
       if (pageEls.length === 0) {
         showToast("יש לפתוח את המסמך לפני הורדה");
         return;
       }
-
-      // Sort by page index so we add them to the PDF in order.
-      pageEls.sort((a, b) => Number(a.dataset.pageIdx || 0) - Number(b.dataset.pageIdx || 0));
-
-      // Track whether we've added the first page yet so we can call addPage()
-      // correctly when content spans multiple slices/pages.
-      let firstPageAdded = false;
-      const SCALE = 2;                       // canvas oversampling
-      const CANVAS_PAGE_HEIGHT = PH * SCALE; // how tall one A4 page is in canvas pixels
-
-      for (let pi = 0; pi < pageEls.length; pi++) {
-        const original = pageEls[pi];
-        // Clone off-screen at natural A4 size — avoids messing with the visible
-        // editor (no flicker, no layout shift) and forces 1:1 capture.
-        const clone = original.cloneNode(true);
-        clone.style.transform = "none";
-        clone.style.zoom = "1";
-        clone.style.position = "absolute";
-        clone.style.top = "0";
-        clone.style.left = "0";
-        clone.style.width = `${PW}px`;
-        clone.style.minHeight = `${PH}px`;
-        clone.style.height = "auto";
-        clone.style.boxShadow = "none";
-        clone.style.borderRadius = "0";
-        // Remove edit-only affordances from the clone before capturing.
-        clone.querySelectorAll(".field-tools, .field-resize, .field-tag").forEach((el) => el.remove());
-        clone.querySelectorAll(".field.placeholder:not(.filled)").forEach((el) => {
-          el.style.border = "none";
-          el.style.background = "transparent";
-        });
-        clone.querySelectorAll(".field-label").forEach((el) => { el.style.display = "none"; });
-
-        const wrap = document.createElement("div");
-        wrap.style.position = "fixed";
-        wrap.style.top = "-99999px";
-        wrap.style.left = "0";
-        wrap.style.zIndex = "-1";
-        wrap.style.background = "#fff";
-        wrap.appendChild(clone);
-        document.body.appendChild(wrap);
-
-        try {
-          const totalH = Math.max(PH, clone.scrollHeight);
-
-          // ── Content-aware pagination ──
-          // Collect "atomic" blocks that must not be split across a page break,
-          // measured in DOM px relative to the clone's top. We then pick page
-          // cut points that fall in the gaps between these blocks, so a page
-          // break never slices through the middle of a milestone/card/row.
-          const cloneTop = clone.getBoundingClientRect().top;
-          const AVOID_SEL = [
-            ".qblk-milestone", ".qblk-callout", ".qblk-labeled", ".qblk-heading",
-            ".quote-info-box", ".quote-price-box", ".quote-refund", ".quote-signoff",
-            // Whole framed boxes first — when a container (like the accounting
-            // table) fits on a page, the break must move above ALL of it, not
-            // just between its rows: a box split across pages loses its border
-            // and reads as a rendering glitch. Rows stay listed as a fallback
-            // for boxes taller than a page.
-            ".quote-acct", ".quote-contact", ".quote-features", ".quote-cards",
-            ".quote-acct-row", ".quote-card", ".quote-checkmarks",
-            ".sc-section", ".sc-qa", ".sc-rating-row", ".sc-offers", ".sc-check",
-            ".bt-summary-row", ".bt-signatory", ".bt-decision",
-            "tr", "h1", "h2", "li",
-          ].join(",");
-          // Headings must not be orphaned at the bottom of a page: extend their
-          // protected range downward so the cut can't fall right after them and
-          // strand a title away from its content.
-          const HEADING_SEL = "h1,h2,.quote-h2,.qblk-heading,.qblk-subheading";
-          const avoid = [];
-          clone.querySelectorAll(AVOID_SEL).forEach((el) => {
-            const r = el.getBoundingClientRect();
-            const top = r.top - cloneTop;
-            const isHeading = el.matches(HEADING_SEL);
-            const bottom = r.bottom - cloneTop + (isHeading ? 110 : 0);
-            const h = bottom - top;
-            // Only keep blocks that could fit within a single page; a block
-            // taller than a page must be split (nothing we can do), and its
-            // smaller children (li / rows) still guide the break.
-            if (h > 0 && h <= PH - 24) avoid.push({ top, bottom });
-          });
-
-          // Build page ranges [startPx, endPx) that respect the atomic blocks.
-          const ranges = [];
-          const MIN_ADVANCE = 60; // never emit a page shorter than this
-          let y = 0;
-          let guard = 0;
-          while (y < totalH - 1 && guard++ < 100) {
-            let cut = y + PH;
-            if (cut >= totalH) {
-              cut = totalH;
-            } else {
-              // Pull the cut up above any block that straddles the ideal break.
-              let best = cut;
-              for (const b of avoid) {
-                if (b.top < cut - 0.5 && b.bottom > cut + 0.5 && b.top < best) {
-                  best = b.top;
-                }
-              }
-              if (best > y + MIN_ADVANCE) cut = best; // else hard split (unavoidable)
-            }
-            if (cut <= y + MIN_ADVANCE) cut = Math.min(y + PH, totalH); // guarantee progress
-            ranges.push([y, cut]);
-            y = cut;
-          }
-          if (ranges.length === 0) ranges.push([0, totalH]);
-
-          const canvas = await window.html2canvas(clone, {
-            scale: SCALE,
-            backgroundColor: "#fff",
-            useCORS: true,
-            allowTaint: true,
-            logging: false,
-            width: PW,
-            height: totalH,
-            windowWidth: PW,
-            windowHeight: totalH,
-          });
-
-          // Each range becomes one A4 page: draw its slice at the top of a
-          // full-height A4 canvas (1:1), leaving white space below if the
-          // page ended early to keep a block whole.
-          for (const [startPx, endPx] of ranges) {
-            const srcY = Math.round(startPx * SCALE);
-            const srcH = Math.min(Math.round((endPx - startPx) * SCALE), canvas.height - srcY);
-            const sliceCanvas = document.createElement("canvas");
-            sliceCanvas.width = canvas.width;
-            sliceCanvas.height = CANVAS_PAGE_HEIGHT;
-            const sctx = sliceCanvas.getContext("2d");
-            sctx.fillStyle = "#fff";
-            sctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
-            if (srcH > 0) {
-              sctx.drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
-            }
-            const dataUrl = sliceCanvas.toDataURL("image/jpeg", 0.92);
-            if (firstPageAdded) pdf.addPage([PW, PH]);
-            pdf.addImage(dataUrl, "JPEG", 0, 0, PW, PH);
-            firstPageAdded = true;
-          }
-        } finally {
-          document.body.removeChild(wrap);
-        }
-      }
-
+      const pdf = await pagesToPdf(pageEls);
       pdf.save((d.name || "מסמך") + ".pdf");
       showToast("המסמך הורד");
     } catch (e) {
@@ -2931,6 +2908,9 @@ const App = () => {
         onNewBankTransfer={openNewBankTransfer}
         onNewSalesCall={openNewSalesCall}
         onOpenSavedSigs={() => setSavedSigsOpen(true)}
+        onBulkDownload={bulkDownload}
+        onBulkDuplicate={bulkDuplicate}
+        onBulkDelete={bulkDelete}
         onOpenStats={() => setStatsOpen(true)}
         onOpenBackup={() => setBackupOpen(true)}
         seen={seen}
