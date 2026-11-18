@@ -228,6 +228,15 @@ export function safeFileName(name) {
   return (clean || "מסמך").slice(0, 120);
 }
 
+// File name for an export: transfers and quotes lead with their number, so
+// several documents for the same recipient sort and read clearly.
+export function exportName(d) {
+  const num = d && d.template === "bank_transfer" ? d.bankTransferData && d.bankTransferData.resolutionNumber
+    : d && d.template === "flowbiz_quote" ? d.quoteData && d.quoteData.quoteNumber : "";
+  const name = (d && d.name) || "מסמך";
+  return num ? `${num} · ${name}` : name;
+}
+
 function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -243,7 +252,7 @@ export async function downloadDocs(docs, onProgress) {
   if (!list.length) return { ok: 0, failed: [] };
   if (list.length === 1) {
     const pdf = await renderDocToPdf(list[0]);
-    pdf.save(safeFileName(list[0].name) + ".pdf");
+    pdf.save(safeFileName(exportName(list[0])) + ".pdf");
     onProgress && onProgress(1, 1);
     return { ok: 1, failed: [] };
   }
@@ -254,7 +263,7 @@ export async function downloadDocs(docs, onProgress) {
     const d = list[i];
     try {
       const pdf = await renderDocToPdf(d);
-      let base = safeFileName(d.name);
+      let base = safeFileName(exportName(d));
       let fname = base + ".pdf", n = 2;
       while (used.has(fname)) fname = `${base} (${n++}).pdf`;
       used.add(fname);
